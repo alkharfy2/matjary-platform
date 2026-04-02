@@ -7,10 +7,13 @@ type GoogleAnalyticsScriptProps = {
 }
 
 export function GoogleAnalyticsScript({ measurementId }: GoogleAnalyticsScriptProps) {
+  const safeId = measurementId.replace(/[^a-zA-Z0-9_-]/g, '')
+  if (!safeId) return null
+
   return (
     <>
       <Script
-        src={`https://www.googletagmanager.com/gtag/js?id=${measurementId}`}
+        src={`https://www.googletagmanager.com/gtag/js?id=${safeId}`}
         strategy="afterInteractive"
       />
       <Script
@@ -21,7 +24,7 @@ export function GoogleAnalyticsScript({ measurementId }: GoogleAnalyticsScriptPr
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
             gtag('js', new Date());
-            gtag('config', '${measurementId}');
+            gtag('config', '${safeId}');
           `,
         }}
       />

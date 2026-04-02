@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import type { PageBlock, ProductVariant } from '@/db/schema'
 import { ProductCard } from '@/app/store/_components/product-card'
 import { getPageBySlug, getProductsForBlock } from '@/lib/queries/storefront'
+import { getProductRatings } from '@/lib/queries/product-ratings'
 import { sanitizeHtml } from '@/lib/sanitize-html'
 import { getCurrentStore } from '@/lib/tenant/get-current-store'
 import { storePath } from '@/lib/tenant/store-path'
@@ -410,11 +411,13 @@ function ProductsBlock({
   products,
   currency,
   storeSlug,
+  ratingsMap,
 }: {
   block: PageBlock
   products: ProductItem[]
   currency: string
   storeSlug: string
+  ratingsMap: Map<string, { avgRating: number; totalReviews: number }>
 }) {
   const { title, description } = block.content as Record<string, unknown>
   const productsTitle = typeof title === 'string' ? title : undefined
@@ -440,6 +443,8 @@ function ProductsBlock({
                 isFeatured={product.isFeatured}
                 variants={product.variants}
                 currency={currency}
+                avgRating={ratingsMap.get(product.id)?.avgRating}
+                totalReviews={ratingsMap.get(product.id)?.totalReviews}
               />
             ))}
           </div>
@@ -468,7 +473,8 @@ function renderBlock(
   block: PageBlock,
   productsMap: Map<string, ProductItem[]>,
   currency: string,
-  storeSlug: string
+  storeSlug: string,
+  ratingsMap: Map<string, { avgRating: number; totalReviews: number }>
 ) {
   switch (block.type) {
     case 'hero':
@@ -495,6 +501,7 @@ function renderBlock(
           products={productsMap.get(block.id) ?? []}
           currency={currency}
           storeSlug={storeSlug}
+          ratingsMap={ratingsMap}
         />
       )
     case 'form':
@@ -537,6 +544,12 @@ export default async function StorePage({
     })
   }
 
+  // Fetch product ratings for all products in custom page blocks
+  const allBlockProducts = Array.from(productsMap.values()).flat()
+  const ratingsMap = allBlockProducts.length > 0
+    ? await getProductRatings(store.id, allBlockProducts.map(p => p.id))
+    : new Map<string, { avgRating: number; totalReviews: number }>()
+
   const currency = store.settings.currency ?? 'EGP'
   const pageDescription = page.seoDescription ?? 'صفحة مخصصة داخل المتجر بنفس الهوية البصرية الجديدة.'
   const pageLeadCardText = blocks.reduce<string | null>((value, block) => {
@@ -574,7 +587,7 @@ export default async function StorePage({
 
       <div className="mx-auto max-w-5xl">
         {blocks.length > 0 ? (
-          blocks.map((block) => renderBlock(block, productsMap, currency, store.slug))
+          blocks.map((block) => renderBlock(block, productsMap, currency, store.slug, ratingsMap))
         ) : (
           <div className="surface-panel-elevated px-6 py-14 text-center">
             <h2 className="ds-heading text-2xl font-black text-[var(--ds-text)]">

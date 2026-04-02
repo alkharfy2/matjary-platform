@@ -1,11 +1,13 @@
 import { FacebookPixelScript } from './facebook-pixel-script'
 import { TikTokPixelScript } from './tiktok-pixel-script'
 import { GoogleAnalyticsScript } from './google-analytics-script'
+import { SnapchatPixelScript } from './snapchat-pixel-script'
 
 type TrackingScriptsProps = {
   facebookPixelId?: string | null
   tiktokPixelId?: string | null
   googleAnalyticsId?: string | null
+  snapchatPixelId?: string | null
 }
 
 /**
@@ -16,12 +18,14 @@ export function TrackingScripts({
   facebookPixelId,
   tiktokPixelId,
   googleAnalyticsId,
+  snapchatPixelId,
 }: TrackingScriptsProps) {
   return (
     <>
       {facebookPixelId && <FacebookPixelScript pixelId={facebookPixelId} />}
       {tiktokPixelId && <TikTokPixelScript pixelId={tiktokPixelId} />}
       {googleAnalyticsId && <GoogleAnalyticsScript measurementId={googleAnalyticsId} />}
+      {snapchatPixelId && <SnapchatPixelScript pixelId={snapchatPixelId} />}
     </>
   )
 }

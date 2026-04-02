@@ -9,6 +9,7 @@ declare global {
     fbq: ((...args: any[]) => void) | undefined
     ttq: Record<string, (...args: any[]) => void> | undefined
     gtag: ((...args: any[]) => void) | undefined
+    snaptr: ((...args: any[]) => void) | undefined
   }
 }
 

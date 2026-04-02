@@ -20,6 +20,15 @@ import {
   ChartNoAxesCombined,
   Settings,
   Wallet,
+  ShoppingBasket,
+  TrendingUp,
+  GitCompareArrows,
+  WandSparkles,
+  BookOpen,
+  Share2,
+  Gift,
+  Boxes,
+  Star,
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme'
 import { SubscriptionBanner } from './subscription-banner'
@@ -39,6 +48,15 @@ export type DashboardSidebarIcon =
   | 'design'
   | 'analytics'
   | 'settings'
+  | 'abandoned-carts'
+  | 'upsell'
+  | 'cross-sell'
+  | 'wand-sparkles'
+  | 'blog'
+  | 'affiliate'
+  | 'loyalty'
+  | 'dropshipping'
+  | 'reviews'
 
 export type DashboardSidebarItem = {
   href: string
@@ -69,6 +87,15 @@ const iconMap: Record<DashboardSidebarIcon, ReactNode> = {
   design: <Palette className="h-4 w-4" />,
   analytics: <ChartNoAxesCombined className="h-4 w-4" />,
   settings: <Settings className="h-4 w-4" />,
+  'abandoned-carts': <ShoppingBasket className="h-4 w-4" />,
+  upsell: <TrendingUp className="h-4 w-4" />,
+  'cross-sell': <GitCompareArrows className="h-4 w-4" />,
+  'wand-sparkles': <WandSparkles className="h-4 w-4" />,
+  blog: <BookOpen className="h-4 w-4" />,
+  affiliate: <Share2 className="h-4 w-4" />,
+  loyalty: <Gift className="h-4 w-4" />,
+  dropshipping: <Boxes className="h-4 w-4" />,
+  reviews: <Star className="h-4 w-4" />,
 }
 
 function isItemActive(pathname: string, href: string) {

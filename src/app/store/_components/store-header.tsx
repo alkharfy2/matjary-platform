@@ -1,10 +1,11 @@
 import Link from 'next/link'
-import { ShoppingBag, Sparkles } from 'lucide-react'
+import { ShoppingBag, Sparkles, User } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme'
 import { CartCounter } from './cart-counter'
 import { StoreSearch } from './store-search'
 import { storePath } from '@/lib/tenant/store-path'
 import { buildCategorySlugSegment } from '@/lib/categories/category-slug'
+import { LanguageSwitcher } from './language-switcher'
 
 type CategoryLink = {
   id: string
@@ -18,6 +19,8 @@ type StoreHeaderProps = {
   logoUrl?: string | null
   categories: CategoryLink[]
   currency?: string
+  blogEnabled?: boolean
+  supportedLanguages?: string[]
 }
 
 export function StoreHeader({
@@ -26,6 +29,8 @@ export function StoreHeader({
   logoUrl,
   categories,
   currency,
+  blogEnabled,
+  supportedLanguages,
 }: StoreHeaderProps) {
   return (
     <header
@@ -81,10 +86,29 @@ export function StoreHeader({
               {cat.name}
             </Link>
           ))}
+          {blogEnabled ? (
+            <Link
+              href={storePath('/blog', { storeSlug })}
+              className="rounded-full px-3 py-2 text-sm font-medium transition-all hover:bg-[var(--ds-hover)]"
+              style={{ color: 'var(--header-link, #374151)' }}
+            >
+              المدونة
+            </Link>
+          ) : null}
         </nav>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          {supportedLanguages && supportedLanguages.length > 1 && (
+            <LanguageSwitcher supportedLanguages={supportedLanguages} />
+          )}
           <ThemeToggle compact className="hidden sm:inline-flex" />
+          <Link
+            href={storePath('/account', { storeSlug })}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border-soft,#e5e7eb)] bg-[var(--surface-card,#fff)] text-[var(--header-link,#374151)] shadow-[var(--ds-shadow-sm)] transition-all hover:bg-[var(--ds-hover)]"
+            aria-label="حسابي"
+          >
+            <User className="h-5 w-5" />
+          </Link>
           <StoreSearch
             storeSlug={storeSlug}
             currency={currency}

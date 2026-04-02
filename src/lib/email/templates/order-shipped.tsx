@@ -10,6 +10,7 @@ import {
   Section,
   Text,
   Heading,
+  Button,
 } from '@react-email/components'
 
 type OrderShippedProps = {
@@ -18,6 +19,7 @@ type OrderShippedProps = {
   customerName: string
   trackingNumber?: string | null
   shippingCompany?: string | null
+  storeSlug?: string | null
 }
 
 export function OrderShippedEmail(props: OrderShippedProps) {
@@ -44,6 +46,24 @@ export function OrderShippedEmail(props: OrderShippedProps) {
             )}
             {props.trackingNumber && (
               <Text style={{ margin: '0 0 4px', fontWeight: 'bold' }}>رقم التتبع: {props.trackingNumber}</Text>
+            )}
+            {props.storeSlug && (
+              <Text style={{ margin: '16px 0 0' }}>
+                <a
+                  href={`https://${props.storeSlug}.matjary.com/track?order=${props.orderNumber}`}
+                  style={{
+                    backgroundColor: '#000',
+                    color: '#fff',
+                    padding: '10px 24px',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  تتبع طلبك
+                </a>
+              </Text>
             )}
           </Section>
 

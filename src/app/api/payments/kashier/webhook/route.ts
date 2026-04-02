@@ -1,10 +1,13 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { db } from '@/db'
-import { storeOrders, stores } from '@/db/schema'
+import { storeOrders, stores, storeOrderItems } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { verifyKashierSignature } from '@/lib/payments/kashier'
 import type { KashierWebhookPayload } from '@/lib/payments/kashier'
 import { apiSuccess, apiError } from '@/lib/api/response'
+import { sendConversionEvent } from '@/lib/tracking/facebook-capi'
+import { generatePurchaseEventId } from '@/lib/tracking/event-deduplication'
 
 /** القيم المسموحة لحالة الدفع من Kashier */
 const ALLOWED_STATUSES = new Set(['SUCCESS', 'FAILED', 'FAILURE', 'PENDING'])
@@ -127,7 +130,7 @@ export async function POST(request: NextRequest) {
 
     // 5. التحقق من تطابق العملة مع عملة المتجر (ثغرة العملة)
     const store = await db
-      .select({ settings: stores.settings })
+      .select({ settings: stores.settings, slug: stores.slug })
       .from(stores)
       .where(eq(stores.id, orderData.storeId))
       .limit(1)
@@ -176,6 +179,46 @@ export async function POST(request: NextRequest) {
         amount: payload.amount,
         currency: receivedCurrency,
       })
+
+      // === CAPI: Purchase (fire-and-forget) ===
+      const storeSettings = store[0].settings as Record<string, unknown> | null
+      if (storeSettings?.facebookConversionApiEnabled &&
+          storeSettings?.facebookPixelId &&
+          storeSettings?.facebookConversionApiToken) {
+        // Fetch order details and items for CAPI
+        const [fullOrder, orderItemsList] = await Promise.all([
+          db.select({
+            customerEmail: storeOrders.customerEmail,
+            customerPhone: storeOrders.customerPhone,
+          }).from(storeOrders).where(eq(storeOrders.id, orderData.id)).limit(1),
+          db.select({ productId: storeOrderItems.productId })
+            .from(storeOrderItems).where(eq(storeOrderItems.orderId, orderData.id)),
+        ])
+
+        const orderInfo = fullOrder[0]
+        sendConversionEvent(
+          {
+            pixelId: storeSettings.facebookPixelId as string,
+            accessToken: storeSettings.facebookConversionApiToken as string,
+            testEventCode: (storeSettings.facebookTestEventCode as string) ?? undefined,
+          },
+          'Purchase',
+          {
+            email: orderInfo?.customerEmail ?? undefined,
+            phone: orderInfo?.customerPhone ?? undefined,
+          },
+          {
+            value: Number(orderData.total),
+            currency: (storeSettings.currency as string) ?? 'EGP',
+            orderId: orderData.orderNumber,
+            numItems: orderItemsList.length,
+            contentIds: orderItemsList.map((i) => i.productId).filter((id): id is string => id !== null),
+            contentType: 'product',
+          },
+          `https://${store[0].slug}.matjary.com`,
+          generatePurchaseEventId(orderData.orderNumber),
+        ).catch(() => {})
+      }
     } else if (kashierStatus === 'FAILED' || kashierStatus === 'FAILURE') {
       await db
         .update(storeOrders)

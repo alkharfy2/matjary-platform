@@ -1,3 +1,4 @@
+export const maxDuration = 30
 /**
  * GET /api/dashboard/notifications/new-orders?since=ISO_TIMESTAMP
  * 

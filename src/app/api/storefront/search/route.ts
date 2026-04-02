@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { getCurrentStore } from '@/lib/tenant/get-current-store'
 import { searchStoreProducts } from '@/lib/queries/storefront'

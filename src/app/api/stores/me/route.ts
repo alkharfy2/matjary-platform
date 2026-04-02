@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { auth } from '@clerk/nextjs/server'
 import { db } from '@/db'
 import { merchants, stores } from '@/db/schema'

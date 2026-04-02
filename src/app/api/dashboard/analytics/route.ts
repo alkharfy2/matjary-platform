@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { db } from '@/db'
 import { storeOrders, storeProducts, storeCustomers, storeOrderItems } from '@/db/schema'

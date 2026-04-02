@@ -93,6 +93,27 @@ export default isPreviewMode
       }
 
       const subdomain = extractSubdomain(hostname, rootDomain)
+
+      // P3: Affiliate referral tracking
+      const refCode = request.nextUrl.searchParams.get('ref')
+      if (refCode && /^[A-Za-z0-9_-]{3,50}$/.test(refCode)) {
+        const response = NextResponse.redirect(
+          (() => {
+            const url = request.nextUrl.clone()
+            url.searchParams.delete('ref')
+            return url
+          })()
+        )
+        response.cookies.set('matjary_ref', refCode, {
+          path: '/',
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+          maxAge: 60 * 60 * 24 * 30, // 30 days
+          httpOnly: true,
+        })
+        return response
+      }
+
       const isDashboardApiRoute = pathname.startsWith('/api/dashboard') || pathname.startsWith('/api/upload')
       const isStorefrontRoute = pathname === '/store' || pathname.startsWith('/store/')
       const isStorefrontApiRoute = pathname.startsWith('/api/storefront')

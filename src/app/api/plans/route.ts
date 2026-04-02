@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { apiSuccess, handleApiError } from '@/lib/api/response'
 import { getPublicPlatformPlans } from '@/lib/queries/platform-plans'
 

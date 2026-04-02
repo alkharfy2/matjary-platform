@@ -38,6 +38,7 @@ function getDb(): DrizzleDb {
     max: 10,           // الحد الأقصى للـ connections في الـ pool
     idle_timeout: 20,  // إغلاق connections الخاملة بعد 20 ثانية
     max_lifetime: 60 * 30, // إعادة إنشاء connections كل 30 دقيقة
+    connect_timeout: 8, // تجنب timeout على Vercel Hobby (10s limit)
   })
   const db = drizzle(client, { schema })
 

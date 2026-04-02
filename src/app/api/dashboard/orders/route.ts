@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { verifyStoreOwnership } from '@/lib/api/auth'
 import { apiSuccess, ApiErrors, handleApiError } from '@/lib/api/response'

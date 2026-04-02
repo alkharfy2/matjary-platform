@@ -11,8 +11,9 @@ import {
   storePages,
   storeReviews,
   stores,
+  storeProductRelations,
 } from '@/db/schema'
-import { eq, and, desc, asc, ilike, count, ne } from 'drizzle-orm'
+import { eq, and, desc, asc, ilike, count, ne, inArray, gte, lte, gt, sql } from 'drizzle-orm'
 import { escapeLike } from '@/lib/utils'
 
 // ============================================
@@ -28,6 +29,12 @@ export async function getStorefrontProducts(
     page?: number
     limit?: number
     sort?: 'newest' | 'price-asc' | 'price-desc' | 'name'
+    // P4-D: Advanced Filters
+    minPrice?: number
+    maxPrice?: number
+    rating?: number
+    inStock?: boolean
+    onSale?: boolean
   }
 ) {
   const {
@@ -37,6 +44,11 @@ export async function getStorefrontProducts(
     page = 1,
     limit = 20,
     sort = 'newest',
+    minPrice,
+    maxPrice,
+    rating,
+    inStock,
+    onSale,
   } = options ?? {}
 
   const conditions = [
@@ -47,6 +59,22 @@ export async function getStorefrontProducts(
   if (categoryId) conditions.push(eq(storeProducts.categoryId, categoryId))
   if (search) conditions.push(ilike(storeProducts.name, `%${escapeLike(search)}%`))
   if (featured) conditions.push(eq(storeProducts.isFeatured, true))
+
+  // P4-D: Advanced Filters
+  if (minPrice !== undefined && minPrice >= 0) {
+    conditions.push(gte(storeProducts.price, String(minPrice)))
+  }
+  if (maxPrice !== undefined && maxPrice > 0) {
+    conditions.push(lte(storeProducts.price, String(maxPrice)))
+  }
+  if (inStock) {
+    conditions.push(gt(storeProducts.stock, 0))
+  }
+  if (onSale) {
+    conditions.push(
+      sql`${storeProducts.compareAtPrice} IS NOT NULL AND ${storeProducts.compareAtPrice}::numeric > ${storeProducts.price}::numeric`
+    )
+  }
 
   const orderBy =
     sort === 'price-asc' ? asc(storeProducts.price) :
@@ -73,6 +101,7 @@ export async function getStorefrontProducts(
       stock: storeProducts.stock,
       isFeatured: storeProducts.isFeatured,
       variants: storeProducts.variants,
+      translations: storeProducts.translations,
     })
     .from(storeProducts)
     .where(and(...conditions))
@@ -80,11 +109,45 @@ export async function getStorefrontProducts(
     .limit(limit)
     .offset(offset)
 
+  // P4-D: Rating post-filter
+  let filteredProducts = products
+
+  if (rating && rating >= 1 && rating <= 5) {
+    const productIds = products.map(p => p.id)
+    if (productIds.length > 0) {
+      const ratingsResult = await db
+        .select({
+          productId: storeReviews.productId,
+          avgRating: sql<number>`avg(${storeReviews.rating})`.as('avg_rating'),
+        })
+        .from(storeReviews)
+        .where(
+          and(
+            eq(storeReviews.storeId, storeId),
+            eq(storeReviews.isApproved, true),
+            inArray(storeReviews.productId, productIds),
+          )
+        )
+        .groupBy(storeReviews.productId)
+
+      const ratingsMap = new Map(ratingsResult.map(r => [r.productId, Number(r.avgRating)]))
+
+      filteredProducts = products.filter(p => {
+        const avgRating = ratingsMap.get(p.id)
+        return avgRating !== undefined && avgRating >= rating
+      })
+    } else {
+      filteredProducts = []
+    }
+  }
+
   return {
-    products,
-    total: totalResult[0]?.count ?? 0,
+    products: filteredProducts,
+    total: rating ? filteredProducts.length : (totalResult[0]?.count ?? 0),
     page,
-    totalPages: Math.ceil((totalResult[0]?.count ?? 0) / limit),
+    totalPages: rating
+      ? Math.ceil(filteredProducts.length / limit)
+      : Math.ceil((totalResult[0]?.count ?? 0) / limit),
   }
 }
 
@@ -350,6 +413,7 @@ export async function getFeaturedProducts(
       stock: storeProducts.stock,
       isFeatured: storeProducts.isFeatured,
       variants: storeProducts.variants,
+      translations: storeProducts.translations,
     })
     .from(storeProducts)
     .where(
@@ -382,6 +446,7 @@ export async function getLatestProducts(
       stock: storeProducts.stock,
       isFeatured: storeProducts.isFeatured,
       variants: storeProducts.variants,
+      translations: storeProducts.translations,
     })
     .from(storeProducts)
     .where(
@@ -418,6 +483,7 @@ async function getCategoryProducts(storeId: string, categoryId: string, limit: n
       stock: storeProducts.stock,
       isFeatured: storeProducts.isFeatured,
       variants: storeProducts.variants,
+      translations: storeProducts.translations,
     })
     .from(storeProducts)
     .where(
@@ -474,6 +540,7 @@ export async function getRelatedProducts(
       stock: storeProducts.stock,
       isFeatured: storeProducts.isFeatured,
       variants: storeProducts.variants,
+      translations: storeProducts.translations,
     })
     .from(storeProducts)
     .where(
@@ -486,6 +553,62 @@ export async function getRelatedProducts(
     )
     .orderBy(desc(storeProducts.createdAt))
     .limit(limit)
+}
+
+/** جلب منتجات Cross-sell المرتبطة بمنتج معين */
+export async function getCrossSellProducts(
+  storeId: string,
+  productId: string,
+  options?: { limit?: number }
+) {
+  const limit = options?.limit ?? 4
+
+  const relations = await db
+    .select({
+      relatedProductId: storeProductRelations.relatedProductId,
+    })
+    .from(storeProductRelations)
+    .where(
+      and(
+        eq(storeProductRelations.storeId, storeId),
+        eq(storeProductRelations.productId, productId),
+        eq(storeProductRelations.relationType, 'cross_sell'),
+      )
+    )
+    .orderBy(asc(storeProductRelations.sortOrder))
+    .limit(limit)
+
+  if (relations.length === 0) return []
+
+  const relatedIds = relations.map((r) => r.relatedProductId)
+
+  const products = await db
+    .select({
+      id: storeProducts.id,
+      name: storeProducts.name,
+      slug: storeProducts.slug,
+      price: storeProducts.price,
+      compareAtPrice: storeProducts.compareAtPrice,
+      images: storeProducts.images,
+      shortDescription: storeProducts.shortDescription,
+      stock: storeProducts.stock,
+      isFeatured: storeProducts.isFeatured,
+      variants: storeProducts.variants,
+      translations: storeProducts.translations,
+    })
+    .from(storeProducts)
+    .where(
+      and(
+        eq(storeProducts.storeId, storeId),
+        eq(storeProducts.isActive, true),
+        inArray(storeProducts.id, relatedIds),
+      )
+    )
+
+  // Filter to only related IDs and preserve sort order
+  return relatedIds
+    .map((id) => products.find((p) => p.id === id))
+    .filter(Boolean) as typeof products
 }
 
 /** بحث في منتجات المتجر — يُستخدم في Live Search */
@@ -553,6 +676,7 @@ export async function getProductsForBlock(
       stock: storeProducts.stock,
       isFeatured: storeProducts.isFeatured,
       variants: storeProducts.variants,
+      translations: storeProducts.translations,
     })
     .from(storeProducts)
     .where(and(...conditions))

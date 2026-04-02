@@ -10,7 +10,7 @@
 
 import { createHash } from 'crypto'
 
-const GRAPH_API_VERSION = 'v21.0'
+const GRAPH_API_VERSION = 'v25.0'
 const GRAPH_API_BASE = 'https://graph.facebook.com'
 
 /** هاش SHA-256 — مطلوب لبيانات المستخدم */
@@ -27,6 +27,7 @@ type CAPIEventName =
   | 'InitiateCheckout'
   | 'Purchase'
   | 'Search'
+  | 'Lead'
 
 type CAPIUserData = {
   email?: string

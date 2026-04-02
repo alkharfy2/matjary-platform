@@ -72,6 +72,7 @@ type ApiProduct = {
     sku?: string | null
     isActive?: boolean
   }>
+  translations?: Record<string, { name?: string; description?: string; shortDescription?: string }> | null
 }
 
 const MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024
@@ -444,6 +445,48 @@ export function ProductForm({ mode, productId }: ProductFormProps) {
   const [optionGroups, setOptionGroups] = useState<OptionGroupForm[]>([])
   const [variantCombinations, setVariantCombinations] = useState<VariantCombinationForm[]>([])
   const [variantWarning, setVariantWarning] = useState<string | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [translations, setTranslations] = useState<Record<string, { name?: string; description?: string; shortDescription?: string }>>({})
+
+  const handleAiDescribe = async () => {
+    if (!name || name.length < 2) {
+      setError('اكتب اسم المنتج الأول')
+      return
+    }
+
+    setAiLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/dashboard/products/ai-describe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productName: name,
+          categoryName: categories?.find(c => c.id === categoryId)?.name,
+          existingDescription: description,
+        }),
+      })
+
+      const data = await res.json()
+      if (!data.success) {
+        setError(data.error ?? 'فشل — حاول تاني')
+        return
+      }
+
+      const stripHtml = (html: string) =>
+        html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+
+      setDescription(stripHtml(data.data.description))
+      setShortDescription(data.data.shortDescription)
+      setSeoTitle(data.data.seoTitle)
+      setSeoDescription(data.data.seoDescription)
+      setNotice(`تم توليد الوصف! (باقي ${data.data.remaining} طلب اليوم)`)
+    } catch {
+      setError('فشل الاتصال')
+    } finally {
+      setAiLoading(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -506,6 +549,9 @@ export function ProductForm({ mode, productId }: ProductFormProps) {
           setSeoTitle(product.seoTitle ?? '')
           setSeoDescription(product.seoDescription ?? '')
           setImages(Array.isArray(product.images) ? product.images : [])
+          if (product.translations && typeof product.translations === 'object') {
+            setTranslations(product.translations as Record<string, { name?: string; description?: string; shortDescription?: string }>)
+          }
           const initializedVariantEditor = initializeVariantEditorState(
             Array.isArray(product.variants) ? product.variants : [],
             ''
@@ -871,6 +917,7 @@ export function ProductForm({ mode, productId }: ProductFormProps) {
         seoDescription: seoDescription.trim() || null,
         images,
         variants: cleanedVariants,
+        translations: Object.keys(translations).length > 0 ? translations : null,
       }
 
       const response = await fetch(
@@ -988,7 +1035,22 @@ export function ProductForm({ mode, productId }: ProductFormProps) {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">وصف المنتج</label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="block text-sm font-medium">وصف المنتج</label>
+                <button
+                  type="button"
+                  onClick={handleAiDescribe}
+                  disabled={aiLoading}
+                  className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-100 disabled:opacity-50"
+                >
+                  {aiLoading ? (
+                    <>
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                      جاري الكتابة...
+                    </>
+                  ) : '✨ اقتراح بالذكاء الاصطناعي'}
+                </button>
+              </div>
               <textarea
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
@@ -1454,6 +1516,99 @@ export function ProductForm({ mode, productId }: ProductFormProps) {
               </label>
             </div>
           </details>
+
+          {/* Translations Section */}
+          <section className="space-y-4 card-surface p-4 sm:p-6">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold">الترجمات</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!translations.en) {
+                    setTranslations((prev) => ({ ...prev, en: { name: '', description: '', shortDescription: '' } }))
+                  }
+                }}
+                className="rounded-lg border border-[var(--ds-border)] px-3 py-1.5 text-sm hover:bg-[var(--ds-surface-muted)]"
+              >
+                + إضافة ترجمة إنجليزية
+              </button>
+            </div>
+            <p className="text-sm text-[var(--ds-text-muted)]">
+              أضف ترجمة للمنتج ليظهر بلغات أخرى عند تفعيل اللغات المتعددة في إعدادات المتجر.
+            </p>
+
+            {Object.keys(translations).length === 0 && (
+              <p className="text-sm text-[var(--ds-text-muted)] italic">لا توجد ترجمات مضافة بعد.</p>
+            )}
+
+            {Object.entries(translations).map(([langCode, trans]) => (
+              <div key={langCode} className="space-y-3 rounded-lg border border-[var(--ds-border)] p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">
+                    {langCode === 'en' ? 'English' : langCode.toUpperCase()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTranslations((prev) => {
+                        const next = { ...prev }
+                        delete next[langCode]
+                        return next
+                      })
+                    }}
+                    className="text-xs text-red-600 hover:underline"
+                  >
+                    إزالة
+                  </button>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">اسم المنتج ({langCode})</label>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    value={trans.name ?? ''}
+                    onChange={(e) =>
+                      setTranslations((prev) => ({
+                        ...prev,
+                        [langCode]: { ...prev[langCode], name: e.target.value },
+                      }))
+                    }
+                    className="w-full rounded-lg border border-[var(--ds-border)] px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">الوصف القصير ({langCode})</label>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    value={trans.shortDescription ?? ''}
+                    onChange={(e) =>
+                      setTranslations((prev) => ({
+                        ...prev,
+                        [langCode]: { ...prev[langCode], shortDescription: e.target.value },
+                      }))
+                    }
+                    className="w-full rounded-lg border border-[var(--ds-border)] px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">الوصف الكامل ({langCode})</label>
+                  <textarea
+                    dir="ltr"
+                    value={trans.description ?? ''}
+                    onChange={(e) =>
+                      setTranslations((prev) => ({
+                        ...prev,
+                        [langCode]: { ...prev[langCode], description: e.target.value },
+                      }))
+                    }
+                    rows={4}
+                    className="w-full rounded-lg border border-[var(--ds-border)] px-3 py-2"
+                  />
+                </div>
+              </div>
+            ))}
+          </section>
 
           <section className="space-y-3 card-surface p-4 sm:p-6">
             <h2 className="text-lg font-semibold">الحفظ</h2>

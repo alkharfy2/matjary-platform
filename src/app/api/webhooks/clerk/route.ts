@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { Webhook } from 'svix'
 import { headers } from 'next/headers'
 import type { WebhookEvent } from '@clerk/nextjs/server'
@@ -23,7 +24,7 @@ function logWebhook(
   }
   if (level === 'error') console.error(JSON.stringify(payload))
   else if (level === 'warn') console.warn(JSON.stringify(payload))
-  else console.log(JSON.stringify(payload))
+  else console.info(JSON.stringify(payload))
 }
 
 /** Retry a DB operation up to `maxRetries` times with exponential backoff */

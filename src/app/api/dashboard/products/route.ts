@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { db } from '@/db'
 import { storeProducts } from '@/db/schema'
@@ -110,6 +111,7 @@ export async function POST(request: NextRequest) {
         seoTitle: data.seoTitle,
         seoDescription: data.seoDescription,
         images: data.images,
+        translations: data.translations ?? {},
       })
       .returning()
 

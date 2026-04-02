@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { db } from '@/db'
 import { merchants, merchantWalletTransactions } from '@/db/schema'

@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { db } from '@/db'
 import { storeOrders } from '@/db/schema'
@@ -11,6 +12,8 @@ import {
   orderStatusTransitions,
 } from '@/lib/queries/dashboard-orders'
 import { sendEmail } from '@/lib/email/resend'
+import { updateCustomerTrustScore } from '@/lib/customers/trust-score'
+import { storeLoyaltyPoints } from '@/db/schema'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -26,7 +29,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     // Verify order exists and belongs to store
     const existing = await db
-      .select({ id: storeOrders.id, orderStatus: storeOrders.orderStatus })
+      .select({ id: storeOrders.id, orderStatus: storeOrders.orderStatus, customerPhone: storeOrders.customerPhone })
       .from(storeOrders)
       .where(and(eq(storeOrders.id, id), eq(storeOrders.storeId, store.id)))
       .limit(1)
@@ -88,6 +91,37 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     const updatedOrder = updated[0]
 
+    // === P1: Update Trust Score on delivered/cancelled (fire-and-forget) ===
+    if (existing[0].customerPhone) {
+      if (orderStatus === 'delivered' && existing[0].orderStatus !== 'delivered') {
+        updateCustomerTrustScore(existing[0].customerPhone, 'delivered').catch(() => {})
+      }
+      if (orderStatus === 'cancelled' && existing[0].orderStatus !== 'cancelled') {
+        updateCustomerTrustScore(existing[0].customerPhone, 'cancelled').catch(() => {})
+      }
+    }
+
+    // === P3: Loyalty points on delivered (fire-and-forget) ===
+    if (orderStatus === 'delivered' && existing[0].orderStatus !== 'delivered' && updatedOrder) {
+      const loyaltySettings = store.settings as Record<string, unknown> | null
+      const loyaltyEnabled = Boolean(loyaltySettings?.loyaltyEnabled)
+      const loyaltyPointsPerEgp = (loyaltySettings?.loyaltyPointsPerEgp as number) || 0
+      if (loyaltyEnabled && loyaltyPointsPerEgp > 0 && existing[0].customerPhone) {
+        const orderTotal = Number(updatedOrder.total)
+        const pointsToEarn = Math.floor(orderTotal * loyaltyPointsPerEgp)
+        if (pointsToEarn > 0) {
+          db.insert(storeLoyaltyPoints).values({
+            storeId: store.id,
+            customerPhone: existing[0].customerPhone,
+            points: pointsToEarn,
+            type: 'earned',
+            orderId: updatedOrder.id,
+            notes: `كسب ${pointsToEarn} نقطة من طلب #${updatedOrder.orderNumber}`,
+          }).catch(() => {})
+        }
+      }
+    }
+
     // === Send status-specific emails (fire-and-forget) ===
     const storeSettings = store.settings as Record<string, unknown> | null
     if (updatedOrder?.customerEmail && storeSettings?.emailNotificationsEnabled !== false) {
@@ -102,6 +136,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
               customerName: updatedOrder.customerName,
               trackingNumber: trackingNumber ?? updatedOrder.trackingNumber,
               shippingCompany: shippingCompany ?? updatedOrder.shippingCompany,
+              storeSlug: store.slug,
             }),
           }).catch(() => {})
         ).catch(() => {})
@@ -118,6 +153,28 @@ export async function PATCH(request: NextRequest, { params }: Params) {
               customerName: updatedOrder.customerName,
             }),
           }).catch(() => {})
+        ).catch(() => {})
+      }
+    }
+
+    // === P4-B: Auto Review Request on Delivery ===
+    if (orderStatus === 'delivered' && existing[0].orderStatus !== 'delivered') {
+      const reviewSettings = store.settings as Record<string, unknown> | null
+      const autoReviewEnabled = reviewSettings?.autoReviewRequestEnabled !== false
+      const reviewRequestDelay = Number(reviewSettings?.reviewRequestDelay ?? 2)
+
+      if (autoReviewEnabled && updatedOrder?.customerEmail) {
+        import('@/lib/reviews/create-review-request').then(({ createReviewRequest }) =>
+          createReviewRequest({
+            storeId: store.id,
+            orderId: updatedOrder.id,
+            customerEmail: updatedOrder.customerEmail,
+            customerPhone: updatedOrder.customerPhone,
+            customerName: updatedOrder.customerName,
+            delayHours: reviewRequestDelay,
+            storeName: store.name,
+            storeSlug: store.slug,
+          }).catch((err) => console.error('[ReviewRequest] Error:', err))
         ).catch(() => {})
       }
     }

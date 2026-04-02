@@ -15,11 +15,15 @@ type FacebookPixelScriptProps = {
 }
 
 export function FacebookPixelScript({ pixelId }: FacebookPixelScriptProps) {
+  const safeId = pixelId.replace(/[^a-zA-Z0-9_-]/g, '')
+
   useEffect(() => {
-    if (typeof window !== 'undefined' && typeof window.fbq === 'function') {
+    if (safeId && typeof window !== 'undefined' && typeof window.fbq === 'function') {
       window.fbq('track', 'PageView')
     }
-  }, [])
+  }, [safeId])
+
+  if (!safeId) return null
 
   return (
     <>
@@ -36,7 +40,7 @@ export function FacebookPixelScript({ pixelId }: FacebookPixelScriptProps) {
             t.src=v;s=b.getElementsByTagName(e)[0];
             s.parentNode.insertBefore(t,s)}(window, document,'script',
             'https://connect.facebook.net/en_US/fbevents.js');
-            fbq('init', '${pixelId}');
+            fbq('init', '${safeId}');
             fbq('track', 'PageView');
           `,
         }}
@@ -47,7 +51,7 @@ export function FacebookPixelScript({ pixelId }: FacebookPixelScriptProps) {
           height="1"
           width="1"
           style={{ display: 'none' }}
-          src={`https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1`}
+          src={`https://www.facebook.com/tr?id=${safeId}&ev=PageView&noscript=1`}
           alt=""
         />
       </noscript>

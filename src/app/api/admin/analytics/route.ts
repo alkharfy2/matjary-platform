@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { unstable_cache } from 'next/cache'
 import { isSuperAdmin } from '@/lib/api/auth'
 import { apiSuccess, ApiErrors, handleApiError } from '@/lib/api/response'

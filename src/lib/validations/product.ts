@@ -138,6 +138,11 @@ const createProductSchemaBase = z.object({
   seoTitle: z.string().trim().max(70).optional().nullable(),
   seoDescription: z.string().trim().max(160).optional().nullable(),
   variants: z.array(productVariantSchema).max(100, { error: 'عدد المتغيرات كبير جدًا' }).default([]),
+  translations: z.record(z.string(), z.object({
+    name: z.string().trim().max(200).optional(),
+    description: z.string().trim().optional(),
+    shortDescription: z.string().trim().max(300).optional(),
+  })).optional().nullable(),
 })
 
 export const createProductSchema = createProductSchemaBase.superRefine((data, ctx) => {
@@ -189,6 +194,11 @@ const updateProductSchemaBase = z.object({
   seoTitle: z.string().trim().max(70).optional().nullable(),
   seoDescription: z.string().trim().max(160).optional().nullable(),
   variants: z.array(productVariantSchema).max(100, { error: 'عدد المتغيرات كبير جدًا' }).optional(),
+  translations: z.record(z.string(), z.object({
+    name: z.string().trim().max(200).optional(),
+    description: z.string().trim().optional(),
+    shortDescription: z.string().trim().max(300).optional(),
+  })).optional().nullable(),
 })
 
 export const updateProductSchema = updateProductSchemaBase.superRefine((data, ctx) => {

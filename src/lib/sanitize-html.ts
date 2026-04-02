@@ -51,3 +51,12 @@ export function sanitizeHtml(dirty: string): string {
   if (!dirty) return ''
   return sanitize(dirty, SANITIZE_OPTIONS)
 }
+
+/**
+ * Strip ALL HTML tags and return plain text only.
+ * Use for user-supplied plain-text fields (names, comments, etc.)
+ */
+export function sanitizeText(dirty: string): string {
+  if (!dirty) return ''
+  return sanitize(dirty, { allowedTags: [], allowedAttributes: {} }).trim()
+}

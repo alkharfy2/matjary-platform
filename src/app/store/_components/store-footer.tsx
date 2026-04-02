@@ -86,9 +86,22 @@ export function StoreFooter({
                     {page.title}
                   </Link>
                 ))}
+                <Link
+                  href={storePath('/track', { storeSlug })}
+                  className="rounded-xl px-3 py-2 text-[var(--ds-text-muted)] transition-colors hover:bg-[var(--ds-hover)] hover:text-[var(--ds-text)]"
+                >
+                  تتبع الطلب
+                </Link>
               </div>
             ) : (
-              <p className="text-sm text-[var(--ds-text-soft)]">لا توجد روابط إضافية حتى الآن</p>
+              <div className="flex flex-col gap-2 text-sm">
+                <Link
+                  href={storePath('/track', { storeSlug })}
+                  className="rounded-xl px-3 py-2 text-[var(--ds-text-muted)] transition-colors hover:bg-[var(--ds-hover)] hover:text-[var(--ds-text)]"
+                >
+                  تتبع الطلب
+                </Link>
+              </div>
             )}
           </div>
 

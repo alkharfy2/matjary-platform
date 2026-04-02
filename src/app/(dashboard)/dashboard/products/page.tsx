@@ -23,6 +23,7 @@ import {
   PageHeader,
   PaginationBar,
 } from '@/components/patterns'
+import { ProductsBulkWrapper } from './_components/products-bulk-wrapper'
 
 type ProductsPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -338,10 +339,12 @@ export default async function ProductsListPage({ searchParams }: ProductsPagePro
                       </td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
+          </ProductsBulkWrapper>
 
           <PaginationBar
             page={productsResult.page}

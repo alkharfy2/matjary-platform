@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useCartStore } from '@/lib/stores/cart-store'
@@ -9,6 +9,7 @@ import { formatPrice } from '@/lib/utils'
 import { storePath } from '@/lib/tenant/store-path'
 import { TrustBadges } from '@/app/store/_components/trust-badges'
 import { shippingAddressSchema } from '@/lib/validations/order'
+import { submitOrder } from './_actions'
 
 // التسعير النهائي يجب أن يتم في /api/checkout server-side
 // (إعادة جلب المنتجات + حساب الشحن والخصم)
@@ -197,11 +198,21 @@ export default function CheckoutPage() {
   const [discount, setDiscount] = useState(0)
   const [couponApplied, setCouponApplied] = useState(false)
   const [couponMessage, setCouponMessage] = useState('')
+  const [autoAppliedCoupon, setAutoAppliedCoupon] = useState(false)
+
+  // P3: Loyalty Points
+  const [loyaltyBalance, setLoyaltyBalance] = useState(0)
+  const [loyaltyValueInEgp, setLoyaltyValueInEgp] = useState(0)
+  const [loyaltyCanRedeem, setLoyaltyCanRedeem] = useState(false)
+  const [loyaltyMinRedemption, setLoyaltyMinRedemption] = useState(0)
+  const [loyaltyPointsInput, setLoyaltyPointsInput] = useState('')
+  const [loyaltyDiscount, setLoyaltyDiscount] = useState(0)
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false)
 
   const [shippingCost, setShippingCost] = useState<number | null>(null)
   const [shippingSupported, setShippingSupported] = useState(true)
   const [shippingLoading, setShippingLoading] = useState(false)
-  const [shippingGovernorates, setShippingGovernorates] = useState<string[]>([])
+  const [shippingGovernorates, setShippingGovernorates] = useState<string[]>(EGYPT_GOVERNORATES)
   const [shippingGovernoratesLoading, setShippingGovernoratesLoading] = useState(false)
   const [couponLoading, setCouponLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -216,7 +227,96 @@ export default function CheckoutPage() {
     0
   )
   const effectiveShipping = shippingCost ?? 0
-  const total = subtotal + effectiveShipping - discount
+  const total = Math.max(0, subtotal + effectiveShipping - discount - loyaltyDiscount)
+
+  // === P4-A: Auto-fill from customer account ===
+  const [customerAutoFilled, setCustomerAutoFilled] = useState(false)
+  useEffect(() => {
+    if (customerAutoFilled) return
+    let cancelled = false
+    async function autoFill() {
+      try {
+        const res = await fetch('/api/storefront/auth/me')
+        const data = await res.json()
+        if (cancelled || !data?.success || !data.data) return
+        const c = data.data as { name?: string; phone?: string; defaultAddress?: Record<string, string> }
+        setForm((prev) => ({
+          ...prev,
+          customerName: prev.customerName || c.name || '',
+          customerPhone: prev.customerPhone || c.phone || '',
+          governorate: prev.governorate || c.defaultAddress?.governorate || '',
+          city: prev.city || c.defaultAddress?.city || '',
+          area: prev.area || c.defaultAddress?.area || '',
+          street: prev.street || c.defaultAddress?.street || '',
+          building: prev.building || c.defaultAddress?.building || '',
+        }))
+        setCustomerAutoFilled(true)
+        // Trigger shipping calc if governorate was auto-filled
+        if (!form.governorate && c.defaultAddress?.governorate) {
+          void handleGovernorateChange(c.defaultAddress.governorate)
+        }
+      } catch { /* ignore - guest checkout */ }
+    }
+    void autoFill()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerAutoFilled])
+
+  // === P1: Abandoned Cart — track if order was submitted ===
+  const orderSubmittedRef = useRef(false)
+  const customerDataRef = useRef<{ name: string; phone: string; email?: string } | null>(null)
+
+  // Keep customer data ref in sync with form changes
+  useEffect(() => {
+    if (form.customerName && form.customerPhone) {
+      customerDataRef.current = {
+        name: form.customerName,
+        phone: form.customerPhone,
+      }
+    }
+  }, [form.customerName, form.customerPhone])
+
+  // Send abandoned cart beacon when leaving checkout
+  useEffect(() => {
+    const handleLeave = () => {
+      const data = customerDataRef.current
+      if (!data?.name || !data?.phone) return
+      if (orderSubmittedRef.current) return
+
+      const cartItems = useCartStore.getState().items
+      if (cartItems.length === 0) return
+
+      navigator.sendBeacon(
+        '/api/storefront/abandoned-cart',
+        JSON.stringify({
+          customerName: data.name,
+          customerPhone: data.phone,
+          customerEmail: data.email || undefined,
+          items: cartItems.map((item) => ({
+            productId: item.productId,
+            productName: item.productName,
+            productImage: item.productImage ?? null,
+            variantId: item.variantId ?? null,
+            variantLabel: item.variantLabel ?? null,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+          })),
+        }),
+      )
+    }
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') handleLeave()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('beforeunload', handleLeave)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('beforeunload', handleLeave)
+    }
+  }, [])
 
   useEffect(() => {
     let isMounted = true
@@ -236,10 +336,10 @@ export default function CheckoutPage() {
           return
         }
 
-        setShippingGovernorates([])
+        setShippingGovernorates(EGYPT_GOVERNORATES)
       } catch {
         if (!isMounted) return
-        setShippingGovernorates([])
+        setShippingGovernorates(EGYPT_GOVERNORATES)
       } finally {
         if (isMounted) {
           setShippingGovernoratesLoading(false)
@@ -253,6 +353,59 @@ export default function CheckoutPage() {
       isMounted = false
     }
   }, [store.id])
+
+  // P3: Auto-apply coupon
+  useEffect(() => {
+    if (couponApplied || subtotal <= 0) return
+
+    let cancelled = false
+    async function checkAutoApply() {
+      try {
+        const res = await fetch('/api/storefront/coupons/auto-apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subtotal }),
+        })
+        const data = await res.json()
+        if (cancelled || couponApplied) return
+        if (data?.success && data.data?.coupon) {
+          const c = data.data.coupon
+          setCouponCode(c.code)
+          setDiscount(c.discountAmount ?? 0)
+          setCouponApplied(true)
+          setAutoAppliedCoupon(true)
+          setCouponMessage('🎉 تم تطبيق كوبون خصم تلقائياً!')
+        }
+      } catch { /* ignore */ }
+    }
+    void checkAutoApply()
+    return () => { cancelled = true }
+  }, [subtotal, couponApplied])
+
+  // P3: Loyalty points balance check
+  useEffect(() => {
+    if (!store.settings.loyaltyEnabled || !form.customerPhone || form.customerPhone.length < 10) return
+
+    let cancelled = false
+    const timeout = setTimeout(async () => {
+      setLoyaltyLoading(true)
+      try {
+        const res = await fetch(`/api/storefront/loyalty/balance?phone=${encodeURIComponent(form.customerPhone.trim())}`)
+        const data = await res.json()
+        if (cancelled) return
+        if (data?.success) {
+          setLoyaltyBalance(data.data.points ?? 0)
+          setLoyaltyValueInEgp(data.data.valueInEgp ?? 0)
+          setLoyaltyCanRedeem(data.data.canRedeem ?? false)
+          setLoyaltyMinRedemption(data.data.minRedemption ?? 0)
+        }
+      } catch { /* ignore */ } finally {
+        if (!cancelled) setLoyaltyLoading(false)
+      }
+    }, 800)
+
+    return () => { cancelled = true; clearTimeout(timeout) }
+  }, [form.customerPhone, store.settings.loyaltyEnabled])
 
   useEffect(() => {
     if (!form.governorate) return
@@ -550,8 +703,9 @@ export default function CheckoutPage() {
         setShippingSupported(false)
       }
     } catch {
-      setShippingCost(null)
-      setShippingSupported(false)
+      // Fallback: use default shipping cost on API failure (e.g., Vercel cold start)
+      setShippingCost(30)
+      setShippingSupported(true)
     } finally {
       setShippingLoading(false)
     }
@@ -644,37 +798,35 @@ export default function CheckoutPage() {
 
     setSubmitting(true)
     try {
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          storeId: store.id,
-          items: items.map((item) => ({
-            productId: item.productId,
-            variantId: item.variantId,
-            quantity: item.quantity,
-          })),
-          shipping: {
-            governorate: form.governorate.trim() || undefined,
-            city: form.city.trim() || undefined,
-            area: form.area.trim() || '\u063a\u064a\u0631 \u0645\u062d\u062f\u062f',
-            street: form.street.trim() || undefined,
-            building: form.building.trim() || undefined,
-          },
-          shippingLocation: shippingLocation
-            ? {
-                latitude: shippingLocation.latitude,
-                longitude: shippingLocation.longitude,
-              }
-            : undefined,
-          customerName: form.customerName.trim(),
-          customerPhone: form.customerPhone.trim(),
-          paymentMethod,
-          couponCode: couponApplied ? couponCode.trim() : undefined,
-        }),
-      })
-      const data: CheckoutResponse = await res.json()
+      const orderPayload = {
+        storeId: store.id,
+        items: items.map((item) => ({
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+        })),
+        shipping: {
+          governorate: form.governorate.trim() || undefined,
+          city: form.city.trim() || undefined,
+          area: form.area.trim() || '\u063a\u064a\u0631 \u0645\u062d\u062f\u062f',
+          street: form.street.trim() || undefined,
+          building: form.building.trim() || undefined,
+        },
+        shippingLocation: shippingLocation
+          ? {
+              latitude: shippingLocation.latitude,
+              longitude: shippingLocation.longitude,
+            }
+          : undefined,
+        customerName: form.customerName.trim(),
+        customerPhone: form.customerPhone.trim(),
+        paymentMethod,
+        couponCode: couponApplied ? couponCode.trim() : undefined,
+        loyaltyPointsToRedeem: loyaltyDiscount > 0 ? parseInt(loyaltyPointsInput) : undefined,
+      }
+      const data = await submitOrder(orderPayload)
       if (data.success) {
+        orderSubmittedRef.current = true
         clearCart()
         if (data.data.paymentUrl) {
           window.location.href = data.data.paymentUrl
@@ -682,7 +834,7 @@ export default function CheckoutPage() {
           router.push(
             storePath('/order-success', {
               storeSlug: store.slug,
-              query: { order: data.data.orderNumber },
+              query: { order: data.data.orderNumber, oid: data.data.orderId },
             })
           )
         }
@@ -863,7 +1015,7 @@ export default function CheckoutPage() {
                   value={form.governorate}
                   onChange={(e) => handleGovernorateChange(e.target.value)}
                   className={fieldClasses(!!formErrors.governorate)}
-                  disabled={shippingGovernoratesLoading || shippingGovernorates.length === 0}
+                  disabled={shippingGovernorates.length === 0}
                 >
                   <option value="">اختر المحافظة</option>
                   {shippingGovernorates.map((gov) => (
@@ -963,6 +1115,7 @@ export default function CheckoutPage() {
                 onChange={(e) => {
                   setCouponCode(e.target.value)
                   setCouponApplied(false)
+                  setAutoAppliedCoupon(false)
                   setDiscount(0)
                   setCouponMessage('')
                 }}
@@ -1000,8 +1153,69 @@ export default function CheckoutPage() {
             )}
           </Section>
 
-          {/* ── 4. طريقة الدفع ── */}
-          <Section number={4} title="طريقة الدفع">
+          {/* ── P3: نقاط الولاء ── */}
+          {store.settings.loyaltyEnabled && (
+            <Section number={4} title="نقاط الولاء">
+              {loyaltyLoading ? (
+                <div className="flex items-center gap-2 text-sm text-[var(--ds-text-muted)]">
+                  <Spinner /> جارٍ التحقق من رصيد النقاط...
+                </div>
+              ) : loyaltyBalance > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-lg bg-[var(--ds-surface-muted)] px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-[var(--ds-text)]">رصيدك: {loyaltyBalance.toLocaleString('ar-EG')} نقطة</p>
+                      <p className="text-xs text-[var(--ds-text-muted)]">
+                        تساوي {formatPrice(loyaltyValueInEgp, currency)}
+                        {!loyaltyCanRedeem && ` (الحد الأدنى ${loyaltyMinRedemption} نقطة)`}
+                      </p>
+                    </div>
+                  </div>
+                  {loyaltyCanRedeem && (
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        type="number"
+                        dir="ltr"
+                        min={0}
+                        max={loyaltyBalance}
+                        value={loyaltyPointsInput}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setLoyaltyPointsInput(val)
+                          const pts = parseInt(val)
+                          if (!isNaN(pts) && pts >= loyaltyMinRedemption && pts <= loyaltyBalance) {
+                            const pointValue = (store.settings as Record<string, unknown>).loyaltyPointValue as number || 0
+                            const maxPercent = (store.settings as Record<string, unknown>).loyaltyMaxRedemptionPercent as number || 50
+                            const maxDiscount = subtotal * (maxPercent / 100)
+                            setLoyaltyDiscount(Math.min(pts * pointValue, maxDiscount))
+                          } else {
+                            setLoyaltyDiscount(0)
+                          }
+                        }}
+                        placeholder={`أدخل عدد النقاط (${loyaltyMinRedemption} - ${loyaltyBalance})`}
+                        className={`flex-1 ${fieldClasses(false)}`}
+                      />
+                    </div>
+                  )}
+                  {loyaltyDiscount > 0 && (
+                    <div className="flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                      </svg>
+                      سيتم خصم {formatPrice(loyaltyDiscount, currency)} من النقاط
+                    </div>
+                  )}
+                </div>
+              ) : form.customerPhone.length >= 10 ? (
+                <p className="text-sm text-[var(--ds-text-muted)]">لا يوجد رصيد نقاط لهذا الرقم</p>
+              ) : (
+                <p className="text-sm text-[var(--ds-text-muted)]">أدخل رقم الهاتف أولاً للتحقق من رصيد النقاط</p>
+              )}
+            </Section>
+          )}
+
+          {/* ── {store.settings.loyaltyEnabled ? 5 : 4}. طريقة الدفع ── */}
+          <Section number={store.settings.loyaltyEnabled ? 5 : 4} title="طريقة الدفع">
             <div className="space-y-3">
               <label
                 className={`flex cursor-pointer items-center gap-4 rounded-xl border-2 p-4 transition-all ${
@@ -1115,9 +1329,18 @@ export default function CheckoutPage() {
 
               {discount > 0 && (
                 <div className="flex justify-between text-sm text-green-600">
-                  <span>الخصم</span>
+                  <span>الخصم{autoAppliedCoupon ? ' (تلقائي)' : ''}</span>
                   <span className="font-medium">
                     - {formatPrice(discount, currency)}
+                  </span>
+                </div>
+              )}
+
+              {loyaltyDiscount > 0 && (
+                <div className="flex justify-between text-sm text-green-600">
+                  <span>خصم نقاط الولاء</span>
+                  <span className="font-medium">
+                    - {formatPrice(loyaltyDiscount, currency)}
                   </span>
                 </div>
               )}

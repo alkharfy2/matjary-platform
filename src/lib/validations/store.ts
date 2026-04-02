@@ -33,6 +33,25 @@ export const createStoreSchema = z.object({
     error: 'تصنيف غير صالح',
   }).optional(),
   planId: z.string().optional(),
+  aiSuggestion: z.object({
+    storeName: z.string(),
+    storeDescription: z.string(),
+    categories: z.array(z.string()),
+    theme: z.object({
+      primaryColor: z.string(),
+      secondaryColor: z.string(),
+      accentColor: z.string(),
+      backgroundColor: z.string(),
+      textColor: z.string(),
+    }),
+    currency: z.enum(['EGP', 'SAR', 'AED', 'USD']),
+    sampleProducts: z.array(z.object({
+      name: z.string(),
+      shortDescription: z.string(),
+      price: z.number(),
+      category: z.string(),
+    })),
+  }).optional(),
 })
 
 export const updateStoreSchema = z.object({
@@ -76,6 +95,48 @@ export const updateStoreSettingsSchema = z.object({
   // Email Notifications
   emailNotificationsEnabled: z.boolean().optional(),
   merchantEmailOnNewOrder: z.boolean().optional(),
+
+  // P1: Fake Order Blocker
+  fakeOrderBlockerEnabled: z.boolean().optional(),
+  fakeOrderMinTrustScore: z.number().min(0).max(100).optional(),
+  fakeOrderAutoReject: z.boolean().optional(),
+
+  // P1: Abandoned Cart Recovery
+  abandonedCartEnabled: z.boolean().optional(),
+  abandonedCartDelayMinutes: z.number().min(5).max(1440).optional(),
+  abandonedCartMessage: z.string().max(500).trim().nullable().optional(),
+  abandonedCartChannel: z.enum(['whatsapp', 'sms', 'email', 'both']).optional(),
+
+  // P1: Exit-Intent Popup
+  exitIntentEnabled: z.boolean().optional(),
+  exitIntentMessage: z.string().max(200).trim().nullable().optional(),
+  exitIntentCouponCode: z.string().max(50).trim().nullable().optional(),
+  exitIntentPages: z.enum(['all', 'product', 'checkout', 'home', 'cart']).optional(),
+
+  // P4-A: Customer Accounts
+  customerAccountsEnabled: z.boolean().optional(),
+  customerAuthMethods: z.array(z.enum(['phone', 'email'])).optional(),
+  requireAccountForCheckout: z.boolean().optional(),
+  guestCheckoutAllowed: z.boolean().optional(),
+
+  // P4-A: Wishlist
+  wishlistEnabled: z.boolean().optional(),
+  wishlistGuestMode: z.boolean().optional(),
+
+  // P4-A: Quick Checkout
+  quickCheckoutEnabled: z.boolean().optional(),
+  quickCheckoutMode: z.enum(['redirect', 'modal']).optional(),
+  skipCartEnabled: z.boolean().optional(),
+
+  // P4-B: Auto Review Request
+  autoReviewRequestEnabled: z.boolean().optional(),
+  reviewRequestDelay: z.number().int().min(1).max(72).optional(),
+  reviewRequestChannel: z.enum(['email', 'whatsapp', 'both']).optional(),
+  reviewLoyaltyPoints: z.number().int().min(0).max(100).optional(),
+
+  // P4-D: Product Comparison
+  comparisonEnabled: z.boolean().optional(),
+  comparisonMaxItems: z.number().int().min(2).max(6).optional(),
 })
 
 export const updateThemeSchema = z.object({

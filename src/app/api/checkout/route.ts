@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { db } from '@/db'
 import {
@@ -8,8 +9,12 @@ import {
   storeCustomers,
   storeCoupons,
   storeShippingZones,
+  storeAbandonedCarts,
+  storeLoyaltyPoints,
+  storeAffiliates,
+  storeAffiliateSales,
 } from '@/db/schema'
-import { eq, and, sql, inArray } from 'drizzle-orm'
+import { eq, and, ne, sql, inArray } from 'drizzle-orm'
 import { apiSuccess, apiError, ApiErrors, handleApiError } from '@/lib/api/response'
 import { checkoutSchema } from '@/lib/validations/order'
 import { nanoid } from 'nanoid'
@@ -17,6 +22,9 @@ import type { ShippingAddress, VariantOption } from '@/db/schema'
 import { createKashierSession } from '@/lib/payments/kashier'
 import { rateLimit, getClientIp, RATE_LIMIT_CHECKOUT } from '@/lib/api/rate-limit'
 import { sendConversionEvent } from '@/lib/tracking/facebook-capi'
+import { checkCustomerTrust } from '@/lib/customers/customer-check'
+import { updateCustomerTrustScore } from '@/lib/customers/trust-score'
+import { cookies } from 'next/headers'
 
 type CheckoutProductVariant = {
   id: string
@@ -91,6 +99,7 @@ export async function POST(request: NextRequest) {
       customerEmail,
       paymentMethod,
       couponCode,
+      loyaltyPointsToRedeem,
     } = parsed.data
 
     const shippingInput = {
@@ -129,6 +138,21 @@ export async function POST(request: NextRequest) {
 
     if (!store[0]) {
       return ApiErrors.storeNotFound()
+    }
+
+    // === P1: Fake Order Blocker — فحص العميل ===
+    const customerCheck = await checkCustomerTrust(
+      customerPhone,
+      storeId,
+      {
+        fakeOrderBlockerEnabled: (store[0].settings as Record<string, unknown>)?.fakeOrderBlockerEnabled as boolean | undefined,
+        fakeOrderMinTrustScore: (store[0].settings as Record<string, unknown>)?.fakeOrderMinTrustScore as number | undefined,
+        fakeOrderAutoReject: (store[0].settings as Record<string, unknown>)?.fakeOrderAutoReject as boolean | undefined,
+      },
+    )
+
+    if (!customerCheck.allowed) {
+      return apiError(customerCheck.reason ?? 'غير مسموح بالطلب', 403, 'CUSTOMER_BLOCKED')
     }
 
     // 2. Pre-fetch products for price calculation (non-authoritative stock check)
@@ -281,23 +305,114 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Calculate discount
-      if (c.type === 'percentage') {
-        discount = subtotal * (parseFloat(c.value) / 100)
-        if (c.maxDiscount) {
-          discount = Math.min(discount, parseFloat(c.maxDiscount))
+      // P3: First order only
+      if (c.firstOrderOnly && customerPhone) {
+        const existingOrders = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(storeOrders)
+          .where(and(
+            eq(storeOrders.storeId, storeId),
+            eq(storeOrders.customerPhone, customerPhone),
+            ne(storeOrders.orderStatus, 'cancelled'),
+          ))
+        if ((existingOrders[0]?.count ?? 0) > 0) {
+          return apiError('هذا الكوبون متاح لأول طلب فقط', 422, 'COUPON_FIRST_ORDER_ONLY')
         }
-      } else {
-        discount = parseFloat(c.value)
       }
 
-      discount = Math.min(discount, subtotal)
-      appliedCouponCode = c.code
-      appliedCouponId = c.id
+      // P3: Per-customer usage limit
+      if (c.usagePerCustomer && customerPhone) {
+        const customerUsage = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(storeOrders)
+          .where(and(
+            eq(storeOrders.storeId, storeId),
+            eq(storeOrders.customerPhone, customerPhone),
+            eq(storeOrders.couponCode, c.code),
+          ))
+        if ((customerUsage[0]?.count ?? 0) >= c.usagePerCustomer) {
+          return apiError('تم استخدام هذا الكوبون بالحد الأقصى المسموح لك', 422, 'COUPON_PER_CUSTOMER_LIMIT')
+        }
+      }
+
+      // P3: Applicable products check
+      const applicableProductIds = c.applicableProductIds ?? []
+      if (applicableProductIds.length > 0) {
+        const cartProductIds = items.map(i => i.productId)
+        const hasApplicable = cartProductIds.some(id => applicableProductIds.includes(id))
+        if (!hasApplicable) {
+          return apiError('هذا الكوبون لا ينطبق على المنتجات في السلة', 422, 'COUPON_PRODUCT_MISMATCH')
+        }
+      }
+
+      // P3: Applicable categories check
+      const applicableCategoryIds = c.applicableCategoryIds ?? []
+      if (applicableCategoryIds.length > 0) {
+        const cartCategoryIds = products.map(p => p.categoryId).filter(Boolean) as string[]
+        const hasApplicable = cartCategoryIds.some(id => applicableCategoryIds.includes(id))
+        if (!hasApplicable) {
+          return apiError('هذا الكوبون لا ينطبق على تصنيفات المنتجات في السلة', 422, 'COUPON_CATEGORY_MISMATCH')
+        }
+      }
+
+      // P3: Free shipping coupon
+      if (c.isFreeShipping) {
+        shippingCost = 0
+        appliedCouponCode = c.code
+        appliedCouponId = c.id
+      } else {
+        // Calculate discount
+        if (c.type === 'percentage') {
+          discount = subtotal * (parseFloat(c.value) / 100)
+          if (c.maxDiscount) {
+            discount = Math.min(discount, parseFloat(c.maxDiscount))
+          }
+        } else {
+          discount = parseFloat(c.value)
+        }
+
+        discount = Math.min(discount, subtotal)
+        appliedCouponCode = c.code
+        appliedCouponId = c.id
+      }
+    }
+
+    // 5b. Loyalty points redemption (P3)
+    let loyaltyDiscount = 0
+    let loyaltyPointsUsed = 0
+    if (loyaltyPointsToRedeem && loyaltyPointsToRedeem > 0) {
+      const rawSettings = (store[0].settings ?? {}) as Record<string, unknown>
+      if (rawSettings.loyaltyEnabled) {
+        const loyaltyPointValue = (rawSettings.loyaltyPointValue as number) || 0
+        const loyaltyMinRedemption = (rawSettings.loyaltyMinRedemption as number) || 0
+        const loyaltyMaxRedemptionPercent = (rawSettings.loyaltyMaxRedemptionPercent as number) || 50
+
+        if (loyaltyPointsToRedeem < loyaltyMinRedemption) {
+          return apiError(`أقل عدد نقاط للاستبدال هو ${loyaltyMinRedemption}`, 422, 'LOYALTY_MIN_REDEMPTION')
+        }
+
+        const [balanceResult] = await db
+          .select({ balance: sql<number>`COALESCE(SUM(points), 0)::int` })
+          .from(storeLoyaltyPoints)
+          .where(and(
+            eq(storeLoyaltyPoints.storeId, storeId),
+            eq(storeLoyaltyPoints.customerPhone, customerPhone),
+          ))
+
+        const balance = balanceResult?.balance ?? 0
+        if (loyaltyPointsToRedeem > balance) {
+          return apiError('رصيد النقاط غير كافي', 422, 'LOYALTY_INSUFFICIENT_BALANCE')
+        }
+
+        const pointsDiscount = loyaltyPointsToRedeem * loyaltyPointValue
+        const maxLoyaltyDiscount = subtotal * (loyaltyMaxRedemptionPercent / 100)
+        loyaltyDiscount = Math.min(pointsDiscount, maxLoyaltyDiscount, subtotal - discount)
+        loyaltyPointsUsed = loyaltyPointsToRedeem
+      }
     }
 
     // 6. Calculate total
-    const total = subtotal + shippingCost - discount
+    const total = subtotal + shippingCost - discount - loyaltyDiscount
 
     // 7. Generate order number
     const orderNumber = `ORD-${nanoid(8).toUpperCase()}`
@@ -410,7 +525,7 @@ export async function POST(request: NextRequest) {
             shippingLocation ? String(shippingLocation.longitude) : null,
           subtotal: String(subtotal),
           shippingCost: String(shippingCost),
-          discount: String(discount),
+          discount: String(discount + loyaltyDiscount),
           total: String(total),
           couponCode: appliedCouponCode,
           paymentMethod,
@@ -467,6 +582,18 @@ export async function POST(request: NextRequest) {
             .set({ stock: sql`GREATEST(0, ${storeProducts.stock} - ${item.quantity})` })
             .where(eq(storeProducts.id, item.productId))
         }
+      }
+
+      // P3: Deduct loyalty points
+      if (loyaltyPointsUsed > 0) {
+        await tx.insert(storeLoyaltyPoints).values({
+          storeId,
+          customerPhone,
+          points: -loyaltyPointsUsed,
+          type: 'redeemed',
+          orderId: createdOrder.id,
+          notes: `استبدال ${loyaltyPointsUsed} نقطة في طلب #${orderNumber}`,
+        })
       }
 
       return createdOrder
@@ -566,6 +693,66 @@ export async function POST(request: NextRequest) {
 
     // 14. Handle Kashier payment
     let paymentUrl: string | undefined = undefined
+
+    // === P1: Update trust score for new order (fire-and-forget) ===
+    updateCustomerTrustScore(customerPhone, 'new_order').catch(() => {})
+
+    // === P1: Mark abandoned carts as recovered (fire-and-forget) ===
+    db.update(storeAbandonedCarts)
+      .set({
+        recoveryStatus: 'recovered',
+        recoveredOrderId: order.id,
+      })
+      .where(and(
+        eq(storeAbandonedCarts.storeId, storeId),
+        eq(storeAbandonedCarts.customerPhone, customerPhone),
+        eq(storeAbandonedCarts.recoveryStatus, 'pending'),
+      ))
+      .catch(() => {})
+
+    // === P3: Affiliate tracking (fire-and-forget) ===
+    const cookieStore = await cookies()
+    const refCode = cookieStore.get('matjary_ref')?.value
+    if (refCode) {
+      ;(async () => {
+        try {
+          const [affiliate] = await db
+            .select()
+            .from(storeAffiliates)
+            .where(and(
+              eq(storeAffiliates.storeId, storeId),
+              eq(storeAffiliates.code, refCode),
+              eq(storeAffiliates.isActive, true),
+            ))
+            .limit(1)
+
+          if (affiliate) {
+            const commissionAmount = Number(order.total) * (Number(affiliate.commissionRate) / 100)
+
+            await db.insert(storeAffiliateSales).values({
+              storeId,
+              affiliateId: affiliate.id,
+              orderId: order.id,
+              saleAmount: order.total,
+              commissionAmount: commissionAmount.toFixed(2),
+              status: 'pending',
+            })
+
+            await db
+              .update(storeAffiliates)
+              .set({
+                totalSales: sql`${storeAffiliates.totalSales}::numeric + ${order.total}::numeric`,
+                totalCommission: sql`${storeAffiliates.totalCommission}::numeric + ${commissionAmount.toFixed(2)}::numeric`,
+                pendingCommission: sql`${storeAffiliates.pendingCommission}::numeric + ${commissionAmount.toFixed(2)}::numeric`,
+              })
+              .where(eq(storeAffiliates.id, affiliate.id))
+          }
+        } catch (e) {
+          console.error('Affiliate tracking error:', e)
+        }
+      })()
+    }
+
     if (paymentMethod === 'kashier') {
       try {
         const kashierResponse = await createKashierSession({

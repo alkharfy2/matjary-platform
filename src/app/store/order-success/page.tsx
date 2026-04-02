@@ -7,11 +7,13 @@ import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { storePath } from '@/lib/tenant/store-path'
 import { useStore } from '@/lib/tenant/store-context'
+import { UpsellOffer } from './_components/upsell-offer'
 
 export default function OrderSuccessPage() {
   const searchParams = useSearchParams()
   const store = useStore()
   const orderNumber = searchParams.get('order')
+  const orderId = searchParams.get('oid')
   const clearCart = useCartStore((state) => state.clearCart)
   const cleared = useRef(false)
 
@@ -76,6 +78,8 @@ export default function OrderSuccessPage() {
         >
           رقم الطلب: #{orderNumber}
         </p>
+        {orderId && <UpsellOffer orderId={orderId} orderNumber={orderNumber} />}
+
         <div className="mt-6">
           <Link
             href={storePath('/', { storeSlug: store.slug })}

@@ -5,8 +5,11 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@clerk/nextjs'
 import { Check, Palette, Sparkles, Store, TicketCheck } from 'lucide-react'
 import { buildTenantDashboardHref } from '@/lib/tenant/urls'
+import { slugify } from '@/lib/utils'
 import { Button, Card } from '@/components/ui'
 import { FloatingAccent, Reveal } from '@/components/motion'
+import { AiStoreSuggestion } from './_components/ai-store-suggestion'
+import type { AiStoreBuilderResponse } from '@/lib/ai/types'
 
 const STEPS = ['معلومات المتجر', 'اختيار الخطة', 'مراجعة الانطلاق'] as const
 
@@ -44,6 +47,8 @@ export default function OnboardingPage() {
   const [errorMessage, setErrorMessage] = useState('')
   const [createdDashboardUrl, setCreatedDashboardUrl] = useState<string | null>(null)
   const [checkingExistingStore, setCheckingExistingStore] = useState(true)
+  const [showAiBuilder, setShowAiBuilder] = useState(false)
+  const [aiSuggestion, setAiSuggestion] = useState<AiStoreBuilderResponse | null>(null)
 
   const router = useRouter()
   const { userId, isLoaded } = useAuth()
@@ -178,6 +183,14 @@ export default function OnboardingPage() {
     }
   }
 
+  function handleAiAccept(suggestion: AiStoreBuilderResponse) {
+    setStoreName(suggestion.storeName)
+    setStoreSlug(slugify(suggestion.storeName))
+    setAiSuggestion(suggestion)
+    setShowAiBuilder(false)
+    setStep(1)
+  }
+
   async function handleSubmit() {
     if (!storeName.trim() || !storeSlug.trim()) {
       setErrorMessage('اسم المتجر ورابطه مطلوبان لإكمال الإنشاء.')
@@ -201,6 +214,7 @@ export default function OnboardingPage() {
           slug: storeSlug.trim(),
           category: (category === 'other' ? customCategory.trim() : category) || undefined,
           planId: selectedPlanId || undefined,
+          aiSuggestion: aiSuggestion || undefined,
         }),
       })
 
@@ -331,6 +345,12 @@ export default function OnboardingPage() {
                 </div>
 
                 {step === 0 ? (
+                  showAiBuilder ? (
+                    <AiStoreSuggestion
+                      onAccept={handleAiAccept}
+                      onSkip={() => setShowAiBuilder(false)}
+                    />
+                  ) : (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="sm:col-span-2">
                       <label className="mb-2 block text-sm font-semibold text-[var(--ds-text)]">اسم المتجر</label>
@@ -394,7 +414,18 @@ export default function OnboardingPage() {
                         </div>
                       ) : null}
                     </div>
+
+                    <div className="sm:col-span-2 text-center">
+                      <button
+                        type="button"
+                        onClick={() => setShowAiBuilder(true)}
+                        className="text-sm text-blue-600 hover:text-blue-700"
+                      >
+                        ✨ أو اترك الذكاء الاصطناعي يساعدك
+                      </button>
+                    </div>
                   </div>
+                  )
                 ) : null}
 
                 {step === 1 ? (

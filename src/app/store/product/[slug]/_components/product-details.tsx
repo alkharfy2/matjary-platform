@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { Check, Minus, Plus, Sparkles } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -10,7 +10,11 @@ import { formatPrice } from '@/lib/utils'
 import { TrustBadges } from '@/app/store/_components/trust-badges'
 import { CartToast } from '@/app/store/_components/cart-toast'
 import { MobileStickyCart } from './mobile-sticky-cart'
+import { StickyAddToCart } from './sticky-add-to-cart'
+import { QuickBuyButton } from './quick-buy-button'
+import { WishlistButton } from '@/app/store/_components/wishlist-button'
 import { storePath } from '@/lib/tenant/store-path'
+import { trackViewContent, trackAddToCart } from '@/lib/tracking/facebook-pixel'
 import type { ProductVariant } from '@/db/schema'
 
 export type ProductDetailsProps = {
@@ -221,6 +225,19 @@ export function ProductDetails({
         .join('، ')
     : null
 
+  // Track ViewContent on mount (once per product)
+  const viewTracked = useRef(false)
+  useEffect(() => {
+    if (viewTracked.current) return
+    viewTracked.current = true
+    trackViewContent({
+      contentId: productId,
+      contentName: name,
+      value: basePrice,
+      currency,
+    })
+  }, [productId, name, basePrice, currency])
+
   const handleOptionChange = useCallback(
     (groupName: string, optionValue: string) => {
       setSelectedOptions((current) => {
@@ -277,6 +294,13 @@ export function ProductDetails({
         quantity,
         maxQuantity: effectiveStock,
         unitPrice: effectivePrice,
+      })
+      trackAddToCart({
+        contentId: productId,
+        contentName: name,
+        value: effectivePrice * quantity,
+        currency,
+        quantity,
       })
       setCartState('success')
       setToastOpen(true)
@@ -381,9 +405,12 @@ export function ProductDetails({
             </div>
 
             <div className="space-y-3">
-              <h1 className="ds-heading text-3xl font-black leading-tight text-[var(--ds-text)] md:text-5xl">
-                {name}
-              </h1>
+              <div className="flex items-start justify-between gap-3">
+                <h1 className="ds-heading text-3xl font-black leading-tight text-[var(--ds-text)] md:text-5xl">
+                  {name}
+                </h1>
+                <WishlistButton productId={productId} variantId={selectedVariant?.id} />
+              </div>
               {description ? (
                 <p className="text-sm leading-8 text-[var(--ds-text-muted)] md:text-base">{description}</p>
               ) : null}
@@ -557,12 +584,37 @@ export function ProductDetails({
                     : 'أضف إلى السلة'}
               </button>
             )}
+
+            {/* Quick Buy Button */}
+            {!purchaseBlocked && effectivePrice !== null && (
+              <QuickBuyButton
+                productId={productId}
+                productName={name}
+                productImage={images[0] ?? null}
+                variantId={selectedVariant?.id ?? null}
+                variantLabel={variantLabel}
+                unitPrice={effectivePrice}
+                stock={effectiveStock}
+                disabled={hasVariantGroups && !selectedVariant}
+              />
+            )}
           </div>
         </div>
         <TrustBadges className="mt-2" />
       </div>
 
       <MobileStickyCart
+        price={effectivePrice}
+        compareAtPrice={effectiveCompare}
+        currency={currency}
+        onAddToCart={handleAddToCart}
+        disabled={purchaseBlocked || cartState !== 'idle'}
+        loading={cartState === 'loading'}
+      />
+
+      <StickyAddToCart
+        productName={name}
+        productImage={images[0] ?? null}
         price={effectivePrice}
         compareAtPrice={effectiveCompare}
         currency={currency}

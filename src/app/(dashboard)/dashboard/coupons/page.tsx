@@ -15,6 +15,10 @@ type Coupon = {
   expiresAt: string | null
   isActive: boolean
   createdAt: string
+  firstOrderOnly: boolean
+  isFreeShipping: boolean
+  autoApply: boolean
+  usagePerCustomer: number | null
 }
 
 type CouponFormState = {
@@ -24,7 +28,16 @@ type CouponFormState = {
   expiresAt: string
   usageLimit: string
   isActive: boolean
+  firstOrderOnly: boolean
+  isFreeShipping: boolean
+  autoApply: boolean
+  usagePerCustomer: string
+  applicableProductIds: string[]
+  applicableCategoryIds: string[]
 }
+
+type SimpleProduct = { id: string; name: string }
+type SimpleCategory = { id: string; name: string }
 
 const emptyFormState: CouponFormState = {
   code: '',
@@ -33,6 +46,12 @@ const emptyFormState: CouponFormState = {
   expiresAt: '',
   usageLimit: '',
   isActive: true,
+  firstOrderOnly: false,
+  isFreeShipping: false,
+  autoApply: false,
+  usagePerCustomer: '',
+  applicableProductIds: [],
+  applicableCategoryIds: [],
 }
 
 function getCouponStatus(coupon: Coupon) {
@@ -79,6 +98,8 @@ export default function CouponsPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [form, setForm] = useState<CouponFormState>(emptyFormState)
+  const [allProducts, setAllProducts] = useState<SimpleProduct[]>([])
+  const [allCategories, setAllCategories] = useState<SimpleCategory[]>([])
 
   const canSubmit = useMemo(() => {
     const numericValue = Number.parseFloat(form.value)
@@ -87,6 +108,7 @@ export default function CouponsPage() {
 
   useEffect(() => {
     void loadCoupons()
+    void loadProductsAndCategories()
   }, [])
 
   async function loadCoupons() {
@@ -106,6 +128,36 @@ export default function CouponsPage() {
       setErrorMessage(error instanceof Error ? error.message : 'تعذر تحميل الكوبونات')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadProductsAndCategories() {
+    try {
+      const [prodRes, catRes] = await Promise.all([
+        fetch('/api/dashboard/products?limit=200'),
+        fetch('/api/dashboard/categories'),
+      ])
+      const prodData = await prodRes.json()
+      const catData = await catRes.json()
+
+      if (prodData.success && prodData.data?.products) {
+        setAllProducts(
+          (prodData.data.products as Array<{ id: string; name: string }>).map((p) => ({
+            id: p.id,
+            name: p.name,
+          }))
+        )
+      }
+      if (catData.success && Array.isArray(catData.data)) {
+        setAllCategories(
+          (catData.data as Array<{ id: string; name: string }>).map((c) => ({
+            id: c.id,
+            name: c.name,
+          }))
+        )
+      }
+    } catch {
+      // non-critical, ignore
     }
   }
 
@@ -148,6 +200,14 @@ export default function CouponsPage() {
           startsAt: null,
           minOrderAmount: null,
           maxDiscount: null,
+          firstOrderOnly: form.firstOrderOnly,
+          isFreeShipping: form.isFreeShipping,
+          autoApply: form.autoApply,
+          usagePerCustomer: form.usagePerCustomer.trim()
+            ? Number.parseInt(form.usagePerCustomer.trim(), 10)
+            : null,
+          applicableProductIds: form.applicableProductIds,
+          applicableCategoryIds: form.applicableCategoryIds,
         }),
       })
       const data = await response.json()
@@ -261,7 +321,121 @@ export default function CouponsPage() {
               <option value="inactive">غير نشط</option>
             </select>
           </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">حد الاستخدام لكل عميل</label>
+            <input
+              type="number"
+              min="1"
+              value={form.usagePerCustomer}
+              onChange={(event) => updateForm('usagePerCustomer', event.target.value)}
+              placeholder="اختياري"
+              className="w-full rounded-lg border border-[var(--ds-border)] px-3 py-2"
+            />
+          </div>
         </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.firstOrderOnly}
+              onChange={(event) => updateForm('firstOrderOnly', event.target.checked)}
+              className="h-4 w-4 rounded border-[var(--ds-border)]"
+            />
+            أول طلب فقط
+          </label>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.isFreeShipping}
+              onChange={(event) => updateForm('isFreeShipping', event.target.checked)}
+              className="h-4 w-4 rounded border-[var(--ds-border)]"
+            />
+            شحن مجاني
+          </label>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.autoApply}
+              onChange={(event) => updateForm('autoApply', event.target.checked)}
+              className="h-4 w-4 rounded border-[var(--ds-border)]"
+            />
+            تطبيق تلقائي
+          </label>
+        </div>
+
+        {/* Product/Category Picker */}
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium">ينطبق على منتجات محددة (اختياري)</label>
+            <div className="max-h-40 overflow-y-auto rounded-lg border border-[var(--ds-border)] p-2">
+              {allProducts.length === 0 ? (
+                <p className="text-xs text-[var(--ds-text-muted)] py-2 text-center">لا توجد منتجات</p>
+              ) : (
+                allProducts.map((product) => (
+                  <label key={product.id} className="flex items-center gap-2 py-1 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.applicableProductIds.includes(product.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          updateForm('applicableProductIds', [...form.applicableProductIds, product.id])
+                        } else {
+                          updateForm('applicableProductIds', form.applicableProductIds.filter((id) => id !== product.id))
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-[var(--ds-border)]"
+                    />
+                    {product.name}
+                  </label>
+                ))
+              )}
+            </div>
+            {form.applicableProductIds.length > 0 && (
+              <p className="mt-1 text-xs text-[var(--ds-text-muted)]">
+                تم اختيار {form.applicableProductIds.length} منتج
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">ينطبق على تصنيفات محددة (اختياري)</label>
+            <div className="max-h-40 overflow-y-auto rounded-lg border border-[var(--ds-border)] p-2">
+              {allCategories.length === 0 ? (
+                <p className="text-xs text-[var(--ds-text-muted)] py-2 text-center">لا توجد تصنيفات</p>
+              ) : (
+                allCategories.map((category) => (
+                  <label key={category.id} className="flex items-center gap-2 py-1 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.applicableCategoryIds.includes(category.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          updateForm('applicableCategoryIds', [...form.applicableCategoryIds, category.id])
+                        } else {
+                          updateForm('applicableCategoryIds', form.applicableCategoryIds.filter((id) => id !== category.id))
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-[var(--ds-border)]"
+                    />
+                    {category.name}
+                  </label>
+                ))
+              )}
+            </div>
+            {form.applicableCategoryIds.length > 0 && (
+              <p className="mt-1 text-xs text-[var(--ds-text-muted)]">
+                تم اختيار {form.applicableCategoryIds.length} تصنيف
+              </p>
+            )}
+          </div>
+        </div>
+        <p className="mt-1 text-xs text-[var(--ds-text-muted)]">
+          اترك الاختيار فارغاً ليتم تطبيق الكوبون على كل المنتجات.
+        </p>
 
         <div className="mt-6">
           <button
@@ -307,7 +481,12 @@ export default function CouponsPage() {
                 return (
                   <tr key={coupon.id} className="border-t border-[var(--ds-border)]/70">
                     <td className="px-4 py-3 font-medium" dir="ltr">
-                      {coupon.code}
+                      <div className="flex items-center gap-2">
+                        {coupon.code}
+                        {coupon.autoApply ? <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">تلقائي</span> : null}
+                        {coupon.firstOrderOnly ? <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] text-purple-700">أول طلب</span> : null}
+                        {coupon.isFreeShipping ? <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[10px] text-teal-700">شحن مجاني</span> : null}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {coupon.type === 'percentage' ? 'نسبة مئوية' : 'قيمة ثابتة'}

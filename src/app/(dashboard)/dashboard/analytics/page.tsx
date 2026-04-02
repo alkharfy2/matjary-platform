@@ -4,6 +4,7 @@ import { getDashboardAnalyticsData } from '@/lib/queries/dashboard-analytics'
 import { formatPrice } from '@/lib/utils'
 import { Button, Card, Select } from '@/components/ui'
 import { PageHeader, StatCard, EmptyState } from '@/components/patterns'
+import { AiInsightsSection } from './_components/ai-insights-section'
 
 type AnalyticsPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>
@@ -58,6 +59,8 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
           <StatCard key={stat.label} label={stat.label} value={stat.value} />
         ))}
       </div>
+
+      <AiInsightsSection />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

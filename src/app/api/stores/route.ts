@@ -1,11 +1,13 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/db'
-import { stores, merchants, platformPlans } from '@/db/schema'
+import { stores, merchants, platformPlans, storeCategories } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { apiSuccess, apiError, ApiErrors, handleApiError } from '@/lib/api/response'
 import { createStoreSchema } from '@/lib/validations/store'
 import { rateLimit, getClientIp, RATE_LIMIT_STORE_CREATE } from '@/lib/api/rate-limit'
+import { slugify } from '@/lib/utils'
 
 type MerchantRow = typeof merchants.$inferSelect
 
@@ -149,10 +151,11 @@ export async function POST(request: NextRequest) {
       return ApiErrors.validation(firstError)
     }
 
-    const { name, slug, planId } = parsed.data
+    const { name, slug, planId, aiSuggestion } = parsed.data
 
     // Validate planId if provided
     let resolvedPlan = 'free'
+    let isFree = true
     if (planId) {
       const planRow = await db
         .select({ id: platformPlans.id, priceMonthly: platformPlans.priceMonthly })
@@ -164,46 +167,37 @@ export async function POST(request: NextRequest) {
       }
 
       // تحديد isPaid: المجانية = true، المدفوعة = false
-      const isFree = !planRow[0] || parseFloat(planRow[0].priceMonthly) === 0
-
-      // Create the store with conflict handling for slug race condition
-      const newStore = await db
-        .insert(stores)
-        .values({
-          merchantId: merchantRow.id,
-          name,
-          slug,
-          contactEmail: merchantRow.email,
-          plan: resolvedPlan,
-          isPaid: isFree,
-        })
-        .onConflictDoNothing({ target: stores.slug })
-        .returning({
-          id: stores.id,
-          name: stores.name,
-          slug: stores.slug,
-          plan: stores.plan,
-          isPaid: stores.isPaid,
-        })
-
-      if (!newStore[0]) {
-        return ApiErrors.validation('هذا الرابط مستخدم بالفعل. اختر رابطاً آخر.')
-      }
-
-      return apiSuccess(newStore[0], 201)
+      isFree = !planRow[0] || parseFloat(planRow[0].priceMonthly) === 0
     }
 
-    // No planId — default free plan (isPaid = true)
+    // Build store insert values
+    const storeValues: Record<string, unknown> = {
+      merchantId: merchantRow.id,
+      name,
+      slug,
+      contactEmail: merchantRow.email,
+      plan: resolvedPlan,
+      isPaid: isFree,
+    }
+
+    // Apply AI data if present
+    if (aiSuggestion) {
+      storeValues.description = aiSuggestion.storeDescription
+      storeValues.aiGenerated = true
+      storeValues.theme = {
+        primaryColor: aiSuggestion.theme.primaryColor,
+        secondaryColor: aiSuggestion.theme.secondaryColor,
+        accentColor: aiSuggestion.theme.accentColor,
+        fontFamily: 'Cairo',
+        borderRadius: '8px',
+        headerStyle: 'simple',
+      }
+    }
+
+    // Create the store
     const newStore = await db
       .insert(stores)
-      .values({
-        merchantId: merchantRow.id,
-        name,
-        slug,
-        contactEmail: merchantRow.email,
-        plan: resolvedPlan,
-        isPaid: true,
-      })
+      .values(storeValues as typeof stores.$inferInsert)
       .onConflictDoNothing({ target: stores.slug })
       .returning({
         id: stores.id,
@@ -215,6 +209,23 @@ export async function POST(request: NextRequest) {
 
     if (!newStore[0]) {
       return ApiErrors.validation('هذا الرابط مستخدم بالفعل. اختر رابطاً آخر.')
+    }
+
+    // Post-creation: process AI suggestion (categories)
+    if (aiSuggestion && newStore[0]) {
+      try {
+        // Create categories
+        for (const categoryName of aiSuggestion.categories) {
+          await db.insert(storeCategories).values({
+            storeId: newStore[0].id,
+            name: categoryName,
+            slug: slugify(categoryName),
+          }).onConflictDoNothing()
+        }
+      } catch (error) {
+        // Non-blocking — store is already created
+        console.error('Failed to create AI categories:', error)
+      }
     }
 
     return apiSuccess(newStore[0], 201)

@@ -7,6 +7,9 @@ type TikTokPixelScriptProps = {
 }
 
 export function TikTokPixelScript({ pixelId }: TikTokPixelScriptProps) {
+  const safeId = pixelId.replace(/[^a-zA-Z0-9_-]/g, '')
+  if (!safeId) return null
+
   return (
     <Script
       id="tiktok-pixel"
@@ -23,7 +26,7 @@ export function TikTokPixelScript({ pixelId }: TikTokPixelScriptProps) {
             ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};
             var i=document.createElement("script");i.type="text/javascript",i.async=!0,i.src=r+"?sdkid="+e+"&lib="+t;
             var a=document.getElementsByTagName("script")[0];a.parentNode.insertBefore(i,a)};
-            ttq.load('${pixelId}');
+            ttq.load('${safeId}');
             ttq.page();
           }(window, document, 'ttq');
         `,

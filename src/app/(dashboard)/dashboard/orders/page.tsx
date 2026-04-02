@@ -10,6 +10,7 @@ import { getCurrentStore } from '@/lib/tenant/get-current-store'
 import { formatDate, formatPrice } from '@/lib/utils'
 import { Button, Card, Input, Select } from '@/components/ui'
 import { EmptyState, FilterBar, PageHeader, PaginationBar, StatusPill } from '@/components/patterns'
+import { OrdersBulkWrapper } from './_components/orders-bulk-wrapper'
 
 type OrdersPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -146,23 +147,41 @@ export default async function OrdersListPage({ searchParams }: OrdersPageProps) 
             ))}
           </div>
 
-          <Card className="hidden overflow-hidden p-0 md:block">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px]">
-                <thead>
-                  <tr>
-                    <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">رقم الطلب</th>
-                    <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">العميل</th>
-                    <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">الإجمالي</th>
-                    <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">حالة الدفع</th>
-                    <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">حالة الطلب</th>
-                    <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">التاريخ</th>
-                    <th className="px-4 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.orders.map((order) => (
-                    <tr key={order.id}>
+          <OrdersBulkWrapper orderIds={result.orders.map(o => o.id)}>
+            {({ selectedIds, toggleSelect, toggleAll, allSelected }) => (
+              <Card className="hidden overflow-hidden p-0 md:block">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[760px]">
+                    <thead>
+                      <tr>
+                        <th className="w-10 px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            onChange={toggleAll}
+                            className="h-4 w-4 rounded accent-[var(--color-primary,#000)]"
+                          />
+                        </th>
+                        <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">رقم الطلب</th>
+                        <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">العميل</th>
+                        <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">الإجمالي</th>
+                        <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">حالة الدفع</th>
+                        <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">حالة الطلب</th>
+                        <th className="px-4 py-3 text-start text-sm font-medium text-[var(--ds-text-muted)]">التاريخ</th>
+                        <th className="px-4 py-3" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.orders.map((order) => (
+                        <tr key={order.id}>
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(order.id)}
+                              onChange={() => toggleSelect(order.id)}
+                              className="h-4 w-4 rounded accent-[var(--color-primary,#000)]"
+                            />
+                          </td>
                       <td className="px-4 py-3 font-medium text-[var(--ds-text)]">#{order.orderNumber}</td>
                       <td className="px-4 py-3">
                         <p className="text-[var(--ds-text)]">{order.customerName}</p>
@@ -179,12 +198,14 @@ export default async function OrdersListPage({ searchParams }: OrdersPageProps) 
                           <Button variant="secondary" size="sm">التفاصيل</Button>
                         </Link>
                       </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
+          </OrdersBulkWrapper>
         </>
       )}
 

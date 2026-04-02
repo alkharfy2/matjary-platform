@@ -118,10 +118,12 @@ export const ApiErrors = {
   forbidden: () => apiError('ممنوع الوصول', 403, 'FORBIDDEN'),
   notFound: (resource = 'المورد') =>
     apiError(`${resource} غير موجود`, 404, 'NOT_FOUND'),
+  tooManyRequests: (message = 'تم تجاوز حد الطلبات. حاول لاحقاً.') =>
+    apiError(message, 429, 'TOO_MANY_REQUESTS'),
   validation: (message: string) =>
     apiError(message, 422, 'VALIDATION_ERROR'),
-  internal: () =>
-    apiError('حدث خطأ داخلي في الخادم', 500, 'INTERNAL_ERROR'),
+  internal: (message = 'حدث خطأ داخلي في الخادم') =>
+    apiError(message, 500, 'INTERNAL_ERROR'),
   storeNotFound: () =>
     apiError('المتجر غير موجود', 404, 'STORE_NOT_FOUND'),
 } as const

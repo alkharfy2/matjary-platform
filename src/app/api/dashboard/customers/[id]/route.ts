@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { db } from '@/db'
 import { storeCustomers, storeOrders } from '@/db/schema'
@@ -5,6 +6,7 @@ import { eq, and, desc } from 'drizzle-orm'
 import { verifyStoreOwnership } from '@/lib/api/auth'
 import { apiSuccess, ApiErrors, handleApiError } from '@/lib/api/response'
 import { updateCustomerSchema } from '@/lib/validations/customer'
+import { getCustomerTrustData } from '@/lib/customers/trust-score'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -34,9 +36,13 @@ export async function GET(_request: NextRequest, { params }: Params) {
       .orderBy(desc(storeOrders.createdAt))
       .limit(50)
 
+    // P1: Fetch platform-level trust data
+    const trustData = await getCustomerTrustData(customer[0].phone)
+
     return apiSuccess({
       ...customer[0],
       orders,
+      trustData,
     })
   } catch (error) {
     console.error('Error fetching customer:', error)

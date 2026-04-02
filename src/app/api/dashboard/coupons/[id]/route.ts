@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { db } from '@/db'
 import { storeCoupons } from '@/db/schema'
@@ -57,6 +58,12 @@ export async function PUT(request: NextRequest, { params }: Params) {
     if (data.startsAt !== undefined) updateData.startsAt = data.startsAt
     if (data.expiresAt !== undefined) updateData.expiresAt = data.expiresAt
     if (data.isActive !== undefined) updateData.isActive = data.isActive
+    if (data.firstOrderOnly !== undefined) updateData.firstOrderOnly = data.firstOrderOnly
+    if (data.applicableProductIds !== undefined) updateData.applicableProductIds = data.applicableProductIds
+    if (data.applicableCategoryIds !== undefined) updateData.applicableCategoryIds = data.applicableCategoryIds
+    if (data.isFreeShipping !== undefined) updateData.isFreeShipping = data.isFreeShipping
+    if (data.autoApply !== undefined) updateData.autoApply = data.autoApply
+    if (data.usagePerCustomer !== undefined) updateData.usagePerCustomer = data.usagePerCustomer
 
     if (Object.keys(updateData).length === 0) {
       return ApiErrors.validation('لا توجد بيانات للتحديث')

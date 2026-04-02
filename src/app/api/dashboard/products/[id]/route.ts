@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
@@ -133,6 +134,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     if (data.seoDescription !== undefined) updateData.seoDescription = data.seoDescription
     if (data.variants !== undefined) updateData.variants = data.variants
     if (data.images !== undefined) updateData.images = data.images
+    if (data.translations !== undefined) updateData.translations = data.translations ?? {}
 
     const updated = await db
       .update(storeProducts)

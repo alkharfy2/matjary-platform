@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { db } from '@/db'
 import { storeCoupons } from '@/db/schema'
@@ -68,6 +69,12 @@ export async function POST(request: NextRequest) {
         startsAt: data.startsAt,
         expiresAt: data.expiresAt,
         isActive: data.isActive,
+        firstOrderOnly: data.firstOrderOnly ?? false,
+        applicableProductIds: data.applicableProductIds ?? [],
+        applicableCategoryIds: data.applicableCategoryIds ?? [],
+        isFreeShipping: data.isFreeShipping ?? false,
+        autoApply: data.autoApply ?? false,
+        usagePerCustomer: data.usagePerCustomer,
       })
       .returning()
 

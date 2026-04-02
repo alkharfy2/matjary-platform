@@ -46,6 +46,7 @@ export const checkoutSchema = z
     customerEmail: z.string().email('البريد الإلكتروني غير صالح').optional().nullable(),
     paymentMethod: z.enum(['cod', 'kashier'], { message: 'طريقة الدفع غير صالحة' }),
     couponCode: z.string().optional().nullable(),
+    loyaltyPointsToRedeem: z.coerce.number().int().min(0).optional().nullable(),
   })
   .superRefine((data, ctx) => {
     const governorate = data.shipping.governorate?.trim() ?? ''
@@ -74,6 +75,9 @@ export const validateCouponSchema = z.object({
   storeId: z.string().uuid(),
   code: z.string().min(1, 'كود الكوبون مطلوب'),
   subtotal: z.number().min(0),
+  customerPhone: z.string().optional(),
+  cartProductIds: z.array(z.string()).optional(),
+  cartCategoryIds: z.array(z.string()).optional(),
 })
 
 export const calculateShippingSchema = z.object({
@@ -162,6 +166,18 @@ const couponSchemaBase = z.object({
     .optional()
     .nullable(),
   isActive: z.coerce.boolean().default(true),
+  // P3: Advanced Coupon Fields
+  firstOrderOnly: z.coerce.boolean().default(false),
+  applicableProductIds: z.array(z.string().uuid()).default([]),
+  applicableCategoryIds: z.array(z.string().uuid()).default([]),
+  isFreeShipping: z.coerce.boolean().default(false),
+  autoApply: z.coerce.boolean().default(false),
+  usagePerCustomer: z.coerce
+    .number({ error: 'حد الاستخدام لكل عميل يجب أن يكون رقماً' })
+    .int({ error: 'حد الاستخدام لكل عميل يجب أن يكون عدداً صحيحاً' })
+    .min(1, { error: 'حد الاستخدام لكل عميل يجب أن يكون 1 على الأقل' })
+    .optional()
+    .nullable(),
 })
 
 export const createCouponSchema = couponSchemaBase.superRefine((data, ctx) => {

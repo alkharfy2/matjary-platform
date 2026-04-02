@@ -1,9 +1,11 @@
 import Link from 'next/link'
+import Script from 'next/script'
 import type { Metadata } from 'next'
 import { ChevronLeft, RotateCcw, ShieldCheck, Sparkles, Truck } from 'lucide-react'
 import { notFound } from 'next/navigation'
-import { Reveal, StaggerGroup } from '@/components/motion'
-import { Card } from '@/components/ui'
+import { Reveal } from '@/components/motion/reveal'
+import { StaggerGroup } from '@/components/motion/stagger-group'
+import { Card } from '@/components/ui/card'
 import { buildCategorySlugSegment } from '@/lib/categories/category-slug'
 import { getCurrentStore } from '@/lib/tenant/get-current-store'
 import { storePath } from '@/lib/tenant/store-path'
@@ -13,10 +15,13 @@ import {
   getLatestProducts,
   getStoreCategories,
 } from '@/lib/queries/storefront'
+import { translateProducts } from '@/lib/products/translate'
+import { getProductRatings } from '@/lib/queries/product-ratings'
 import { HeroSlider } from './_components/hero-slider'
 import { ProductCard } from './_components/product-card'
 import { StoreSearch } from './_components/store-search'
 import { TrustBadges } from './_components/trust-badges'
+
 
 export async function generateMetadata(): Promise<Metadata> {
   const store = await getCurrentStore()
@@ -27,9 +32,16 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 }
 
-export default async function StorefrontHomePage() {
+export default async function StorefrontHomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ lang?: string }>
+}) {
   const store = await getCurrentStore()
   if (!store) notFound()
+
+  const { lang: langParam } = await searchParams
+  const lang = langParam || 'ar'
 
   let slides: Awaited<ReturnType<typeof getHeroSlides>> = []
   let categories: Awaited<ReturnType<typeof getStoreCategories>> = []
@@ -52,6 +64,14 @@ export default async function StorefrontHomePage() {
       </div>
     )
   }
+
+  // Apply multi-language translations
+  featuredProducts = translateProducts(featuredProducts, lang)
+  latestProducts = translateProducts(latestProducts, lang)
+
+  // Fetch product ratings
+  const allProductIds = [...featuredProducts, ...latestProducts].map(p => p.id)
+  const ratingsMap = await getProductRatings(store.id, allProductIds)
 
   return (
     <div className="space-y-10 sm:space-y-12">
@@ -180,6 +200,8 @@ export default async function StorefrontHomePage() {
                 isFeatured={product.isFeatured}
                 variants={product.variants}
                 currency={store.settings.currency}
+                avgRating={ratingsMap.get(product.id)?.avgRating}
+                totalReviews={ratingsMap.get(product.id)?.totalReviews}
               />
             ))}
           </StaggerGroup>
@@ -211,6 +233,8 @@ export default async function StorefrontHomePage() {
                 isFeatured={product.isFeatured}
                 variants={product.variants}
                 currency={store.settings.currency}
+                avgRating={ratingsMap.get(product.id)?.avgRating}
+                totalReviews={ratingsMap.get(product.id)?.totalReviews}
               />
             ))}
           </StaggerGroup>
@@ -218,6 +242,76 @@ export default async function StorefrontHomePage() {
           <p className="text-sm text-[var(--ds-text-muted)]">لا توجد منتجات متاحة الآن.</p>
         )}
       </section>
+
+      <div id="recently-viewed-mount" />
+      <Script id="rv-init" strategy="afterInteractive"
+        dangerouslySetInnerHTML={{
+          __html: `
+(function(){
+  try {
+    var raw = localStorage.getItem('matjary-recently-viewed');
+    if (!raw) return;
+    var parsed = JSON.parse(raw);
+    var items = (parsed && parsed.state && parsed.state.items) || [];
+    var ids = items.map(function(i){ return i.productId; }).slice(0, 6);
+    if (ids.length === 0) return;
+    fetch('/api/storefront/products?ids=' + encodeURIComponent(ids.join(',')))
+      .then(function(r){ return r.json(); })
+      .then(function(json){
+        var products = (json && json.data && json.data.data) || (json && json.data) || [];
+        if (!Array.isArray(products) || products.length === 0) return;
+        var mount = document.getElementById('recently-viewed-mount');
+        if (!mount) return;
+        var storeSlug = ${JSON.stringify(store.slug)};
+        var currency = ${JSON.stringify(store.settings.currency)};
+        var html = '<section class="mx-auto w-full max-w-[1280px] px-4 pb-8 sm:px-6">';
+        html += '<div class="mb-6 flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--color-primary,#000)"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><h2 class="text-xl font-bold" style="color:var(--ds-text)">شاهدته مؤخراً</h2></div>';
+        html += '<div class="flex gap-4 overflow-x-auto pb-2">';
+        products.forEach(function(p){
+          var price = Number(p.price);
+          var img = (p.images && p.images[0]) ? '<img src="' + p.images[0] + '" alt="' + p.name + '" class="h-full w-full object-cover" loading="lazy"/>' : '<div class="flex h-full items-center justify-center text-xs" style="color:var(--ds-text-soft)">لا صورة</div>';
+          var priceText = new Intl.NumberFormat('ar-EG', {style:'currency',currency:currency}).format(price);
+          html += '<a href="/store/product/' + p.slug + '?store=' + storeSlug + '" class="group flex w-40 shrink-0 flex-col overflow-hidden rounded-2xl border bg-white shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg" style="border-color:var(--ds-divider);background:var(--surface-card,#fff)">';
+          html += '<div class="aspect-square overflow-hidden" style="background:var(--surface-muted,#f1f5f9)">' + img + '</div>';
+          html += '<div class="space-y-1 p-3"><h3 class="line-clamp-1 text-sm font-semibold" style="color:var(--ds-text)">' + p.name + '</h3>';
+          html += '<span class="text-sm font-bold" style="color:var(--color-primary,#000)">' + priceText + '</span></div></a>';
+        });
+        html += '</div></section>';
+        mount.innerHTML = html;
+      }).catch(function(){});
+  } catch(e){}
+})();
+          `,
+        }}
+      />
+
+      <div id="compare-float-mount" />
+      <Script id="cf-init" strategy="afterInteractive"
+        dangerouslySetInnerHTML={{
+          __html: `
+(function(){
+  var KEY='matjary-compare',SLUG=${JSON.stringify(store.slug)};
+  function getItems(){try{var r=localStorage.getItem(KEY);if(!r)return[];var p=JSON.parse(r);return(p.state&&p.state.items)||[]}catch(e){return[]}}
+  function clearItems(){try{var r=localStorage.getItem(KEY);if(r){var p=JSON.parse(r);p.state.items=[];localStorage.setItem(KEY,JSON.stringify(p))}}catch(e){}renderBar()}
+  var mount=document.getElementById('compare-float-mount');
+  if(!mount)return;
+  function renderBar(){
+    var it=getItems();
+    if(!it.length){mount.innerHTML='';return}
+    var h='/store/compare?store='+encodeURIComponent(SLUG);
+    mount.innerHTML='<div style="position:fixed;bottom:80px;inset-inline-start:16px;z-index:50;display:flex;align-items:center;gap:12px;border-radius:16px;border:1px solid #e5e7eb;background:#fff;padding:12px 16px;box-shadow:0 4px 12px rgba(0,0,0,.1)">'
+      +'<span style="font-size:14px;font-weight:600;color:#1f2937">'+it.length+' \u0645\u0646\u062a\u062c \u0644\u0644\u0645\u0642\u0627\u0631\u0646\u0629</span>'
+      +'<a href="'+h+'" style="border-radius:9999px;padding:6px 16px;font-size:12px;font-weight:700;color:#fff;background:#111827;text-decoration:none">\u0642\u0627\u0631\u0646 \u0627\u0644\u0622\u0646</a>'
+      +'<button id="cmp-clr" style="padding:4px;color:#6b7280;background:none;border:none;cursor:pointer" aria-label="\u0645\u0633\u062d">\u2715</button>'
+      +'</div>';
+    var b=document.getElementById('cmp-clr');if(b)b.onclick=clearItems;
+  }
+  renderBar();
+  setInterval(function(){renderBar()},500);
+})();
+          `,
+        }}
+      />
     </div>
   )
 }

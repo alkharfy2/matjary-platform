@@ -1,3 +1,4 @@
+export const maxDuration = 30
 import { NextRequest } from 'next/server'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
