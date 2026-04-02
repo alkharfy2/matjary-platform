@@ -223,7 +223,9 @@ export default async function ProductsListPage({ searchParams }: ProductsPagePro
           }
         />
       ) : (
-        <>
+        <ProductsBulkWrapper products={productsResult.products.map(p => ({ id: p.id, name: p.name, isActive: p.isActive }))}>
+          {({ selectedIds, toggleSelect, toggleAll, allSelected }) => (
+          <>
           <div className="space-y-3 md:hidden">
             {productsResult.products.map((product) => (
               <Card key={product.id} className="space-y-3">
@@ -343,8 +345,6 @@ export default async function ProductsListPage({ searchParams }: ProductsPagePro
                   </table>
                 </div>
               </Card>
-            )}
-          </ProductsBulkWrapper>
 
           <PaginationBar
             page={productsResult.page}
@@ -353,7 +353,9 @@ export default async function ProductsListPage({ searchParams }: ProductsPagePro
             prevHref={hasPrevPage ? buildQuery(filters, { page: productsResult.page - 1 }) : undefined}
             nextHref={hasNextPage ? buildQuery(filters, { page: productsResult.page + 1 }) : undefined}
           />
-        </>
+          </>
+          )}
+        </ProductsBulkWrapper>
       )}
     </div>
   )
